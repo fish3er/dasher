@@ -16,18 +16,21 @@ class SafeDasher:
         self.view_max = 1.0
         self.typed_text = ""
         
-        self.canvas_w = 1100
-        self.canvas_h = 700 
+        # --- NOWOŚĆ: Historia stanów do usuwania liter ---
+        # Przechowuje krotki: (tekst_przed, min_przed, max_przed)
+        self.history = []
         
+        self.canvas_w = 800
+        self.canvas_h = 500 
+
         # Pozycja celownika
         self.cross_x = 260  
         self.mid_y = self.canvas_h / 2
         
-        # --- UI: KANWA ---
+        # UI
         self.canvas = tk.Canvas(root, width=self.canvas_w, height=self.canvas_h, bg="#f0f0f0", highlightthickness=0)
         self.canvas.pack()
         
-        # --- UI: POLE TEKSTOWE NA DOLE ---
         self.text_frame = tk.Frame(root, bg="#dcdcdc", padx=10, pady=10)
         self.text_frame.pack(fill="x")
         
@@ -37,10 +40,8 @@ class SafeDasher:
                                    bg="white", fg="#222", 
                                    relief="sunken", bd=2, justify="left")
         self.text_entry.pack(fill="x", padx=5)
-        # Pole jest tylko do odczytu dla myszy, by nie kolidowało z pisaniem
         self.text_entry.bind("<Key>", lambda e: "break") 
 
-        # Stan myszy
         self.mouse_x = self.cross_x
         self.mouse_y = self.mid_y
         self.canvas.bind("<Motion>", self.save_mouse)
@@ -51,7 +52,7 @@ class SafeDasher:
         self.mouse_x, self.mouse_y = event.x, event.y
 
     def update_physics(self):
-        # dx: prawo = zoom in, lewo = zoom out
+        # dx: prawo (dodatnie) = zoom in, lewo (ujemne) = zoom out
         dx = (self.mouse_x - self.cross_x) / (self.canvas_w - self.cross_x)
         
         # dy: góra / dół
@@ -63,31 +64,43 @@ class SafeDasher:
 
         current_range = self.view_max - self.view_min
         
-        # Przesunięcie pionowe
+        # 1. Przesunięcie pionowe (TILT)
         shift = tilt_speed * current_range
         self.view_min += shift
         self.view_max += shift
 
-        # Skalowanie (Zoom)
+        # 2. Skalowanie (ZOOM)
         if abs(dx) > 0.01:
             center = (self.view_min + self.view_max) / 2
             new_range = current_range / (1.0 + zoom_speed)
             
+            # --- LOGIKA COFANIA (Zoom Out / Delete) ---
+            # Jeśli oddalamy i jesteśmy poza standardowym zakresem 0-1, 
+            # oraz mamy coś w historii, to przywracamy poprzednią literę.
+            if zoom_speed < 0 and new_range > 1.05 and self.history:
+                # Wyciągamy ostatni stan z historii
+                self.typed_text, self.view_min, self.view_max = self.history.pop()
+                self.entry_var.set(self.typed_text)
+                return # Przerywamy obliczenia w tej klatce, by uniknąć przeskoków
+
+            # Standardowe ograniczenia zoomu
             if new_range < 1e-9: new_range = 1e-9
-            if new_range > 1.0: new_range = 1.0
+            # Pozwalamy new_range być większym niż 1.0 tylko na chwilę przed popem
+            if not self.history and new_range > 1.0: new_range = 1.0
             
             self.view_min = center - (new_range / 2)
             self.view_max = center + (new_range / 2)
 
-        # Ograniczenia Anti-Lost
-        if self.view_min < 0:
-            diff = 0 - self.view_min
-            self.view_min += diff
-            self.view_max += diff
-        if self.view_max > 1.0:
-            diff = self.view_max - 1.0
-            self.view_min -= diff
-            self.view_max -= diff
+        # Ograniczenia Anti-Lost (tylko gdy nie mamy historii do której możemy wrócić)
+        if not self.history:
+            if self.view_min < 0:
+                diff = 0 - self.view_min
+                self.view_min += diff
+                self.view_max += diff
+            if self.view_max > 1.0:
+                diff = self.view_max - 1.0
+                self.view_min -= diff
+                self.view_max -= diff
 
         self.check_selection()
 
@@ -97,21 +110,23 @@ class SafeDasher:
             c_low = i * step
             c_high = (i + 1) * step
             
+            # Jeśli widok w całości mieści się wewnątrz pudełka danej litery
             if self.view_min >= c_low and self.view_max <= c_high:
                 char = self.alphabet[i]
+                
+                # --- ZAPISUJEMY STAN DO HISTORII przed zmianą ---
+                # Zapisujemy obecny tekst i obecne współrzędne ŚWIATA
+                self.history.append((self.typed_text, self.view_min, self.view_max))
+                
                 self.typed_text += char
                 
-                if char == ' ':
-                    self.view_min, self.view_max = 0.0, 1.0
-                else:
-                    new_min = (self.view_min - c_low) / step
-                    new_max = (self.view_max - c_low) / step
-                    self.view_min = max(0.0, new_min)
-                    self.view_max = min(1.0, new_max)
+                # Resetujemy widok do wnętrza nowej litery (normalizacja 0.0 - 1.0)
+                new_min = (self.view_min - c_low) / step
+                new_max = (self.view_max - c_low) / step
+                self.view_min = max(0.0, new_min)
+                self.view_max = min(1.0, new_max)
                 
-                # Aktualizacja pola tekstowego
                 self.entry_var.set(self.typed_text)
-                # Przewiń na koniec pola, żeby widzieć co się pisze
                 self.text_entry.xview_moveto(1)
                 break
 
@@ -120,7 +135,7 @@ class SafeDasher:
         view_range = self.view_max - self.view_min
         if view_range <= 0: return
 
-        # Tło alfabetu
+        # Tło
         y_world_top = (0.0 - self.view_min) / view_range * self.canvas_h
         y_world_bot = (1.0 - self.view_min) / view_range * self.canvas_h
         self.canvas.create_rectangle(self.cross_x, y_world_top, self.canvas_w, y_world_bot, fill="white", outline="")
