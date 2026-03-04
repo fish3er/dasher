@@ -2,7 +2,7 @@ import torch
 import re
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
-class GPUAutocomplete:
+class Autocomplete:
     def __init__(self):
         self.local_path = "./polish_model"
         
@@ -23,7 +23,7 @@ class GPUAutocomplete:
         self.model = model.to(self.device)
         self.model.eval()
 
-    def predict_gpu(self, prompt, num_options=10):
+    def predict(self, prompt, num_options=10):
         inputs = self.tokenizer(prompt, return_tensors='pt', truncation=True, max_length=64)
         inputs = {k: v.to(self.device) for k, v in inputs.items()}
         
@@ -61,7 +61,7 @@ class GPUAutocomplete:
 
 # Testowanie
 if __name__ == "__main__":
-    ac = GPUAutocomplete()
+    ac = Autocomplete()
     import time
     
     print("\nModel gotowy. Wpisz tekst (zwróć uwagę na spacje w sugestiach).")
@@ -70,7 +70,7 @@ if __name__ == "__main__":
         if txt.lower() == 'exit': break
         
         start = time.perf_counter()
-        res = ac.predict_gpu(txt, num_options=10)
+        res = ac.predict(txt, num_options=10)
         end = time.perf_counter()
         
         ms = round((end - start) * 1000, 2)
