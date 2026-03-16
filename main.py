@@ -1,187 +1,175 @@
 import tkinter as tk
 import string
+import threading
+from model import Autocomplete 
 
-class SafeDasher:
+class AIDasher:
     def __init__(self, root):
         self.root = root
-        self.root.title("Python Dasher - Text Field Edition")
+        self.root.title("AI Dasher")
         
-        # Alfabet i kolory
-        self.alphabet = list(string.ascii_lowercase) + [' ']
-        self.num_chars = len(self.alphabet)
-        self.colors = ["#FFD700", "#ADFF2F", "#00FFFF", "#FF69B4", "#FFA500", "#1E90FF"]
-
-        # Parametry świata [0.0 - 1.0]
-        self.view_min = 0.0
-        self.view_max = 1.0
+        # 1. Inicjalizacja Modelu 
+        self.ac = Autocomplete()
+        
+        # 2. Ustawienia alfabetu i stanów
+        self.alphabet = list(string.ascii_lowercase) + [' ', '.', ',', '!', '?']
+        self.current_suggestions = [] 
+        self.elements = []           
+        
         self.typed_text = ""
-        
-        # --- NOWOŚĆ: Historia stanów do usuwania liter ---
-        # Przechowuje krotki: (tekst_przed, min_przed, max_przed)
-        self.history = []
-        
-        self.canvas_w = 800
-        self.canvas_h = 500 
-
-        # Pozycja celownika
-        self.cross_x = 260  
-        self.mid_y = self.canvas_h / 2
+        self.view_min, self.view_max = 0.0, 1.0
+        self.history = [] # (text, min, max, suggestions)
         
         # UI
-        self.canvas = tk.Canvas(root, width=self.canvas_w, height=self.canvas_h, bg="#f0f0f0", highlightthickness=0)
+        self.canvas_w, self.canvas_h = 800, 500
+        self.cross_x = 240
+        self.mid_y = self.canvas_h / 2
+        
+        self.canvas = tk.Canvas(root, width=self.canvas_w, height=self.canvas_h, bg="white")
         self.canvas.pack()
         
-        self.text_frame = tk.Frame(root, bg="#dcdcdc", padx=10, pady=10)
-        self.text_frame.pack(fill="x")
-        
         self.entry_var = tk.StringVar()
-        self.text_entry = tk.Entry(self.text_frame, textvariable=self.entry_var, 
-                                   font=("Consolas", 32, "bold"), 
-                                   bg="white", fg="#222", 
-                                   relief="sunken", bd=2, justify="left")
-        self.text_entry.pack(fill="x", padx=5)
-        self.text_entry.bind("<Key>", lambda e: "break") 
+        self.entry = tk.Entry(root, textvariable=self.entry_var, font=("Consolas", 24))
+        self.entry.pack(fill="x")
 
-        self.mouse_x = self.cross_x
-        self.mouse_y = self.mid_y
+        self.mouse_x, self.mouse_y = self.cross_x, self.mid_y
         self.canvas.bind("<Motion>", self.save_mouse)
 
+        
+        self.update_layout()
         self.run()
 
     def save_mouse(self, event):
         self.mouse_x, self.mouse_y = event.x, event.y
 
-    def update_physics(self):
-        # dx: prawo (dodatnie) = zoom in, lewo (ujemne) = zoom out
-        dx = (self.mouse_x - self.cross_x) / (self.canvas_w - self.cross_x)
+    def update_layout(self):
+        """Kluczowa funkcja: Buduje listę elementów do narysowania w pionie (0.0 do 1.0)"""
+        new_elements = []
         
-        # dy: góra / dół
+      
+        ai_ratio = 0.4 if self.current_suggestions else 0.0
+        alp_ratio = 1.0 - ai_ratio
+        
+        current_y = 0.0
+        
+        
+        if self.current_suggestions:
+            h_step = ai_ratio / len(self.current_suggestions)
+            for word in self.current_suggestions:
+                new_elements.append({
+                    'label': word, 'low': current_y, 'high': current_y + h_step, 
+                    'color': "#D1E8FF", 'is_ai': True
+                })
+                current_y += h_step
+        
+   
+        h_step = alp_ratio / len(self.alphabet)
+        colors = ["#FFD700", "#ADFF2F", "#00FFFF", "#FF69B4", "#FFA500", "#1E90FF"]
+        for i, char in enumerate(self.alphabet):
+            new_elements.append({
+                'label': char, 'low': current_y, 'high': current_y + h_step, 
+                'color': colors[i % len(colors)], 'is_ai': False
+            })
+            current_y += h_step
+            
+        self.elements = new_elements
+
+    def fetch_suggestions_in_background(self):
+        """Odpalane przy każdej nowej literze/słowie"""
+        def thread_target():
+            sugs = self.ac.predict(self.typed_text, num_options=5)
+ 
+            self.root.after(0, self.apply_suggestions, sugs)
+        
+        t = threading.Thread(target=thread_target)
+        t.daemon = True
+        t.start()
+
+    def apply_suggestions(self, sugs):
+        self.current_suggestions = sugs
+        self.update_layout()
+
+    def update_physics(self):
+        dx = (self.mouse_x - self.cross_x) / (self.canvas_w - self.cross_x)
         raw_dy = (self.mouse_y - self.mid_y) / (self.canvas_h / 2)
         dy = (abs(raw_dy) ** 1.5) * (1 if raw_dy > 0 else -1)
         
-        zoom_speed = dx * 0.08 
-        tilt_speed = dy * 0.04 
-
+        zoom_speed = dx * 0.08
         current_range = self.view_max - self.view_min
         
-        # 1. Przesunięcie pionowe (TILT)
-        shift = tilt_speed * current_range
+        
+        shift = dy * 0.04 * current_range
         self.view_min += shift
         self.view_max += shift
 
-        # 2. Skalowanie (ZOOM)
+  
         if abs(dx) > 0.01:
             center = (self.view_min + self.view_max) / 2
             new_range = current_range / (1.0 + zoom_speed)
             
-            # --- LOGIKA COFANIA (Zoom Out / Delete) ---
-            # Jeśli oddalamy i jesteśmy poza standardowym zakresem 0-1, 
-            # oraz mamy coś w historii, to przywracamy poprzednią literę.
-            if zoom_speed < 0 and new_range > 1.05 and self.history:
-                # Wyciągamy ostatni stan z historii
-                self.typed_text, self.view_min, self.view_max = self.history.pop()
-                self.entry_var.set(self.typed_text)
-                return # Przerywamy obliczenia w tej klatce, by uniknąć przeskoków
 
-            # Standardowe ograniczenia zoomu
-            if new_range < 1e-9: new_range = 1e-9
-            # Pozwalamy new_range być większym niż 1.0 tylko na chwilę przed popem
+            if zoom_speed < 0 and new_range > 1.05 and self.history:
+                self.typed_text, self.view_min, self.view_max, self.current_suggestions = self.history.pop()
+                self.entry_var.set(self.typed_text)
+                self.update_layout()
+                return
+
             if not self.history and new_range > 1.0: new_range = 1.0
-            
             self.view_min = center - (new_range / 2)
             self.view_max = center + (new_range / 2)
-
-        # Ograniczenia Anti-Lost (tylko gdy nie mamy historii do której możemy wrócić)
-        if not self.history:
-            if self.view_min < 0:
-                diff = 0 - self.view_min
-                self.view_min += diff
-                self.view_max += diff
-            if self.view_max > 1.0:
-                diff = self.view_max - 1.0
-                self.view_min -= diff
-                self.view_max -= diff
 
         self.check_selection()
 
     def check_selection(self):
-        step = 1.0 / self.num_chars
-        for i in range(self.num_chars):
-            c_low = i * step
-            c_high = (i + 1) * step
-            
-            # Jeśli widok w całości mieści się wewnątrz pudełka danej litery
-            if self.view_min >= c_low and self.view_max <= c_high:
-                char = self.alphabet[i]
+        """Sprawdza, czy użytkownik 'wjechał' w głąb jakiegoś elementu"""
+        for el in self.elements:
+            if self.view_min >= el['low'] and self.view_max <= el['high']:
+
+                self.history.append((self.typed_text, self.view_min, self.view_max, list(self.current_suggestions)))
                 
-                # --- ZAPISUJEMY STAN DO HISTORII przed zmianą ---
-                # Zapisujemy obecny tekst i obecne współrzędne ŚWIATA
-                self.history.append((self.typed_text, self.view_min, self.view_max))
-                
-                self.typed_text += char
-                
-                # Resetujemy widok do wnętrza nowej litery (normalizacja 0.0 - 1.0)
-                new_min = (self.view_min - c_low) / step
-                new_max = (self.view_max - c_low) / step
-                self.view_min = max(0.0, new_min)
-                self.view_max = min(1.0, new_max)
-                
+
+                self.typed_text += el['label']
                 self.entry_var.set(self.typed_text)
-                self.text_entry.xview_moveto(1)
+                
+
+                span = el['high'] - el['low']
+                new_min = (self.view_min - el['low']) / span
+                new_max = (self.view_max - el['low']) / span
+                self.view_min, self.view_max = new_min, new_max
+                
+
+                self.fetch_suggestions_in_background()
                 break
 
     def draw_scene(self):
         self.canvas.delete("all")
-        view_range = self.view_max - self.view_min
-        if view_range <= 0: return
-
-        # Tło
-        y_world_top = (0.0 - self.view_min) / view_range * self.canvas_h
-        y_world_bot = (1.0 - self.view_min) / view_range * self.canvas_h
-        self.canvas.create_rectangle(self.cross_x, y_world_top, self.canvas_w, y_world_bot, fill="white", outline="")
-
-        # Celownik
-        self.canvas.create_line(self.cross_x, 0, self.cross_x, self.canvas_h, fill="#DDDDDD", dash=(4,4))
-        self.canvas.create_line(self.cross_x - 25, self.mid_y, self.cross_x + 25, self.mid_y, fill="red", width=2)
+        v_range = self.view_max - self.view_min
         
-        self.render_recursive(0.0, 1.0, 0)
 
-    def render_recursive(self, n_min, n_max, depth):
-        view_range = self.view_max - self.view_min
-        y_top = (n_min - self.view_min) / view_range * self.canvas_h
-        y_bot = (n_max - self.view_min) / view_range * self.canvas_h
-        
-        if y_bot < -50 or y_top > self.canvas_h + 50: return
+        self.canvas.create_line(self.cross_x, 0, self.cross_x, self.canvas_h, fill="#DDD")
+        self.canvas.create_line(self.cross_x-20, self.mid_y, self.cross_x+20, self.mid_y, fill="red")
 
-        step = (n_max - n_min) / self.num_chars
-        for i, char in enumerate(self.alphabet):
-            c_min = n_min + i * step
-            c_max = n_min + (i + 1) * step
-            sy_top = (c_min - self.view_min) / view_range * self.canvas_h
-            sy_bot = (c_max - self.view_min) / view_range * self.canvas_h
+        for el in self.elements:
+            y_top = (el['low'] - self.view_min) / v_range * self.canvas_h
+            y_bot = (el['high'] - self.view_min) / v_range * self.canvas_h
             
-            h = sy_bot - sy_top
-            if h < 1.5: continue
-
-            if sy_bot > 0 and sy_top < self.canvas_h:
-                progress = h / self.canvas_h
-                x_left = self.cross_x + (1.0 - min(1.0, progress)) * (self.canvas_w - self.cross_x) * 0.8
-                x_left = max(self.cross_x, x_left)
-                
-                color = self.colors[i % len(self.colors)]
-                if char == ' ': color = "#E8E8E8"
-                
-                self.canvas.create_rectangle(x_left, sy_top, self.canvas_w, sy_bot, 
-                                             fill=color, outline="#777777", width=1)
-                
-                if h > 15:
-                    f_size = int(min(h * 0.4, 28))
-                    label = char if char != ' ' else "_"
-                    self.canvas.create_text(x_left + 8, (sy_top + sy_bot)/2, 
-                                            text=label, anchor="w", font=("Arial", f_size, "bold"))
-
-                if h > 100 and depth < 3:
-                    self.render_recursive(c_min, c_max, depth + 1)
+            if y_bot < -100 or y_top > self.canvas_h + 100: continue
+            
+            h = y_bot - y_top
+            if h < 1: continue
+            
+            progress = h / self.canvas_h
+            x_left = self.cross_x + (1.0 - min(1.0, progress)) * (self.canvas_w - self.cross_x) * 0.8
+            
+            self.canvas.create_rectangle(x_left, y_top, self.canvas_w, y_bot, 
+                                         fill=el['color'], outline="#666")
+            
+            if h > 10:
+                txt = el['label'].replace(" ", "_")
+                f_size = int(min(h * 0.4, 30 if not el['is_ai'] else 20))
+                if f_size > 6:
+                    self.canvas.create_text(x_left + 10, (y_top+y_bot)/2, text=txt, 
+                                            anchor="w", font=("Arial", f_size, "bold"))
 
     def run(self):
         self.update_physics()
@@ -190,6 +178,5 @@ class SafeDasher:
 
 if __name__ == "__main__":
     root = tk.Tk()
-    root.configure(bg="#f0f0f0")
-    app = SafeDasher(root)
+    app = AIDasher(root)
     root.mainloop()
