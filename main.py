@@ -12,7 +12,11 @@ class AIDasher:
         self.ac = Autocomplete()
         
         # 2. Ustawienia alfabetu i stanów
-        self.alphabet = list(string.ascii_lowercase) + [' ', '.', ',', '!', '?']
+        polish_chars = ['ą', 'ć', 'ę', 'ł', 'ń', 'ó', 'ś', 'ź', 'ż']
+
+        # Łączymy wszystko w jedną listę
+        self.alphabet = list(string.ascii_lowercase) + polish_chars + [' ', '.', ',', '!', '?']
+      
         self.current_suggestions = [] 
         self.elements = []           
         
@@ -21,7 +25,7 @@ class AIDasher:
         self.history = [] # (text, min, max, suggestions)
         
         # UI
-        self.canvas_w, self.canvas_h = 800, 500
+        self.canvas_w, self.canvas_h = 1000, 900
         self.cross_x = 240
         self.mid_y = self.canvas_h / 2
         
@@ -77,7 +81,7 @@ class AIDasher:
     def fetch_suggestions_in_background(self):
         """Odpalane przy każdej nowej literze/słowie"""
         def thread_target():
-            sugs = self.ac.predict(self.typed_text, num_options=5)
+            sugs = self.ac.predict(self.typed_text, num_options=8)
  
             self.root.after(0, self.apply_suggestions, sugs)
         

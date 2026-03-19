@@ -16,7 +16,8 @@ class Autocomplete:
         self.model = model.to(self.device)
         self.model.eval()
 
-    def predict(self, prompt, num_options=5):
+
+    def predict(self, prompt, num_options=8):
         
         if not prompt: prompt = " "
         
@@ -32,10 +33,11 @@ class Autocomplete:
         
         suggestions = []
         for word in decoded:
-            clean_word = word.replace('\n', '').replace('\r', '').replace('\t', '')
+            clean_word = word.replace('\n', '').replace('\r', '').replace('\t', '').replace('.','').replace('?','').replace('!','').replace(',','').replace(';','').replace(':','')
             if not clean_word or clean_word.isspace(): continue
             if clean_word not in suggestions:
                 suggestions.append(clean_word)
             if len(suggestions) >= num_options:
                 break
         return suggestions
+
