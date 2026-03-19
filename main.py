@@ -1,5 +1,4 @@
 import tkinter as tk
-import string
 import threading
 from model import Autocomplete 
 
@@ -8,14 +7,13 @@ class AIDasher:
         self.root = root
         self.root.title("AI Dasher")
         
-        # 1. Inicjalizacja Modelu 
         self.ac = Autocomplete()
-        
-        # 2. Ustawienia alfabetu i stanów
-        polish_chars = ['ą', 'ć', 'ę', 'ł', 'ń', 'ó', 'ś', 'ź', 'ż']
+    
+        #alphabet
+        full_polish_alphabet = "aąbcćdeęfghijklłmnńoóprstuwvyzźż"
+        special_chars = [' ', '.', ',', '!', '?']
 
-        # Łączymy wszystko w jedną listę
-        self.alphabet = list(string.ascii_lowercase) + polish_chars + [' ', '.', ',', '!', '?']
+        self.alphabet = list(full_polish_alphabet) + special_chars
       
         self.current_suggestions = [] 
         self.elements = []           
@@ -26,7 +24,7 @@ class AIDasher:
         
         # UI
         self.canvas_w, self.canvas_h = 1000, 900
-        self.cross_x = 240
+        self.cross_x = 80
         self.mid_y = self.canvas_h / 2
         
         self.canvas = tk.Canvas(root, width=self.canvas_w, height=self.canvas_h, bg="white")
@@ -47,11 +45,9 @@ class AIDasher:
         self.mouse_x, self.mouse_y = event.x, event.y
 
     def update_layout(self):
-        """Kluczowa funkcja: Buduje listę elementów do narysowania w pionie (0.0 do 1.0)"""
         new_elements = []
         
-      
-        ai_ratio = 0.4 if self.current_suggestions else 0.0
+        ai_ratio = 0.3 #if self.current_suggestions else 0.0
         alp_ratio = 1.0 - ai_ratio
         
         current_y = 0.0
@@ -79,9 +75,8 @@ class AIDasher:
         self.elements = new_elements
 
     def fetch_suggestions_in_background(self):
-        """Odpalane przy każdej nowej literze/słowie"""
         def thread_target():
-            sugs = self.ac.predict(self.typed_text, num_options=8)
+            sugs = self.ac.predict(self.typed_text, num_options=5)
  
             self.root.after(0, self.apply_suggestions, sugs)
         
@@ -102,12 +97,12 @@ class AIDasher:
         current_range = self.view_max - self.view_min
         
         
-        shift = dy * 0.04 * current_range
+        shift = dy * 0.06 * current_range
         self.view_min += shift
         self.view_max += shift
 
   
-        if abs(dx) > 0.01:
+        if abs(dx) > 0.02:
             center = (self.view_min + self.view_max) / 2
             new_range = current_range / (1.0 + zoom_speed)
             
@@ -125,7 +120,6 @@ class AIDasher:
         self.check_selection()
 
     def check_selection(self):
-        """Sprawdza, czy użytkownik 'wjechał' w głąb jakiegoś elementu"""
         for el in self.elements:
             if self.view_min >= el['low'] and self.view_max <= el['high']:
 
@@ -137,8 +131,8 @@ class AIDasher:
                 
 
                 span = el['high'] - el['low']
-                new_min = (self.view_min - el['low']) / span
-                new_max = (self.view_max - el['low']) / span
+                new_min = ((self.view_min - el['low']) / span)
+                new_max = ((self.view_max - el['low']) / span)
                 self.view_min, self.view_max = new_min, new_max
                 
 
@@ -163,7 +157,7 @@ class AIDasher:
             if h < 1: continue
             
             progress = h / self.canvas_h
-            x_left = self.cross_x + (1.0 - min(1.0, progress)) * (self.canvas_w - self.cross_x) * 0.8
+            x_left = self.cross_x + (1.0 - min(1.0, progress)) * (self.canvas_w - self.cross_x) 
             
             self.canvas.create_rectangle(x_left, y_top, self.canvas_w, y_bot, 
                                          fill=el['color'], outline="#666")
