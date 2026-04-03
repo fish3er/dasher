@@ -1,71 +1,79 @@
 import re
-from autocomplete import Autocomplete
+import time
+import torch
+from model import Autocomplete
 
-def run_benchmark(model_name):
-    # Inicjalizacja Twojej klasy
+def run_smart_test(model_name):
     ac = Autocomplete(model_name)
     
-    # Przykładowy tekst Ground Truth (dość długi, po polsku)
     ground_truth_text = """
-    Sztuczna inteligencja staje się kluczowym elementem nowoczesnej gospodarki cyfrowej. 
+    Sztuczna inteligencja staje się coraz bardziej powszechna w naszym codziennym życiu. 
     Wiele polskich firm technologicznych wdraża zaawansowane modele językowe, aby 
-    automatyzować procesy biznesowe oraz poprawiać jakość komunikacji z klientem. 
-    Lokalne systemy autocomplete pozwalają na bezpieczne przetwarzanie danych 
-    bez konieczności wysyłania ich do zewnętrznych serwerów w chmurze.
+    poprawić jakość obsługi klienta w internecie oraz przyspieszyć pracę programistów.
     """
     
-    # Czyszczenie tekstu do testów
-    words = re.sub(r'[^\w\s]', '', ground_truth_text).lower().split()
+    # Czyszczenie tekstu
+    clean_text = re.sub(r'[^\w\s]', '', ground_truth_text).lower()
+    words = clean_text.split()
     
-    total_latency = 0
-    total_chars_needed = 0
-    words_tested = 0
-    prediction_calls = 0
-    context_window = 4 # Liczba słów kontekstu
+    history_text = ""
+    total_inputs_sent = 0
+    total_characters_in_text = 0
+    total_latency = 0 
+    words_count = len(words)
 
-    print(f"\n--- START TESTU: {model_name} ---")
+    print(f"\n--- TEST LOGIKI DOKOŃCZEŃ: {model_name} ---")
 
-    for i in range(context_window, len(words)):
-        target_word = words[i]
-        if len(target_word) <= 3: continue # Pomijamy spójniki (i, w, na, że)
+    for target_word in words:
+        total_characters_in_text += len(target_word)
+        word_completed = False
         
-        context = " ".join(words[i-context_window:i])
-        found_at_letter = len(target_word)
-        
-        # Symulacja wpisywania litera po literze
         for num_letters in range(len(target_word)):
             prefix = target_word[:num_letters]
-            prompt = context + " " + prefix
+            prompt = history_text + " " + prefix if history_text else prefix
             
-            # Wywołanie Twojej metody predict
-            suggestions, latency = ac.predict(prompt, num_options=3)
+            # --- POMIAR CZASU TUTAJ (W TEŚCIE) ---
+            if torch.cuda.is_available():
+                torch.cuda.synchronize()
             
-            total_latency += latency
-            prediction_calls += 1
+            start_time = time.perf_counter()
             
-            # Sprawdzenie czy słowo jest w podpowiedziach
-            # Używamy strip().lower() dla pewności porównania
-            if any(s.strip().lower() == target_word for s in suggestions):
-                found_at_letter = num_letters
+            # Wywołanie predict (zwraca teraz tylko JEDNĄ wartość: listę)
+            suggestions = ac.predict(prompt, num_options=5)
+            
+            if torch.cuda.is_available():
+                torch.cuda.synchronize()
+            
+            latency = (time.perf_counter() - start_time) * 1000
+            # -------------------------------------
+
+            total_inputs_sent += 1
+            total_latency += latency 
+            
+            for s in suggestions:
+                s_clean = s.lower()
+                if s_clean == target_word or (prefix + s_clean) == target_word:
+                    word_completed = True
+                    break
+            
+            if word_completed:
                 break
         
-        total_chars_needed += found_at_letter
-        words_tested += 1
-        
-        if words_tested % 5 == 0:
-            print(f"Przetworzono {words_tested} słów...")
+        history_text += " " + target_word if history_text else target_word
 
-    # Statystyki
-    avg_chars = total_chars_needed / words_tested if words_tested > 0 else 0
-    avg_time = total_latency / prediction_calls if prediction_calls > 0 else 0
+    # STATYSTYKI
+    avg_inputs_per_word = total_inputs_sent / words_count
+    avg_word_len = total_characters_in_text / words_count
+    avg_latency_ms = total_latency / total_inputs_sent if total_inputs_sent > 0 else 0
+    writing_efficiency = (1 - ((total_inputs_sent - words_count) / total_characters_in_text)) * 100
 
-    print("\n" + "="*50)
-    print(f"RAPORT DLA: {model_name}")
-    print(f"Średnia liczba wpisanych liter do trafienia: {avg_chars:.2f}")
-    print(f"Średni czas myślenia (1 podpowiedź): {avg_time:.2f} ms")
-    print("="*50)
+    print("\n" + "="*60)
+    print(f"MODEL: {model_name}")
+    print(f"Średnia długość słowa:         {avg_word_len:.2f} znaków")
+    print(f"Średnia liczba prób na słowo:  {avg_inputs_per_word:.2f} inputów")
+    print(f"Średni czas odpowiedzi:        {avg_latency_ms:.2f} ms")
+    print(f"Efektywność pisania:           {writing_efficiency:.1f}%")
+    print("="*60)
 
 if __name__ == "__main__":
-    # Możesz tu dodać inne modele z listy 2024-2025 do porównania
-    # np. "deepseek-ai/DeepSeek-R1-Distill-Qwen-0.5B"
-    run_benchmark("Qwen/Qwen2.5-0.5B")
+    run_smart_test("Qwen/Qwen2.5-0.5B")
