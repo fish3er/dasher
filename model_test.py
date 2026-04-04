@@ -87,6 +87,6 @@ def run_smart_test(model_name, hf_token=None):
 if __name__ == "__main__":
     # 1. Wpisz swój token poniżej, lub 
     # 2. Zaloguj się w terminalu przez: huggingface-cli login
-    MY_HF_TOKEN = "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"
+    MY_HF_TOKEN = "-"
     
     run_smart_test("meta-llama/Llama-3.2-1B", hf_token=MY_HF_TOKEN)
