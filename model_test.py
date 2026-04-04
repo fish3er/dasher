@@ -55,6 +55,8 @@ def run_smart_test(model_name, hf_token=None):
     kss = (1 - ((total_inputs_sent - words_count) / total_characters_in_text)) * 100 if total_characters_in_text > 0 else 0
 
     # Wydruk w formacie z obrazka
+    print("\n" + "="*60)
+    print(f"MODEL: {model_name}")
     print(f"{'Średnia długość słowa:':<30} {avg_word_len:.2f} znaków")
     print(f"{'Średnia liczba prób na słowo:':<30} {avg_inputs_per_word:.2f} inputów")
     print(f"{'Średni czas odpowiedzi:':<30} {avg_latency_ms:.2f} ms")
