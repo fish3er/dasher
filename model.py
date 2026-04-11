@@ -2,10 +2,11 @@ import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
 class Autocomplete:
-    def __init__(self, model_id="meta-llama/Llama-3.2-1B", hf_token=None):
+    def __init__(self, model_id="deepseek-ai/DeepSeek-R1-Distill-Qwen-1.5B", hf_token=None):
         self.model_id = model_id
         self.device = "cuda" if torch.cuda.is_available() else "cpu"
         
+        print(f"Ładowanie modelu: {model_id}...")
         # Ładowanie tokenizera
         self.tokenizer = AutoTokenizer.from_pretrained(self.model_id, token=hf_token)
         
@@ -22,12 +23,11 @@ class Autocomplete:
         
         self.model.eval()
         
-        # Llama 3 nie ma zdefiniowanego pad_token domyślnie
+        # Qwen/DeepSeek zazwyczaj mają pad_token, ale na wszelki wypadek:
         if self.tokenizer.pad_token is None:
             self.tokenizer.pad_token = self.tokenizer.eos_token
 
     def predict(self, prompt, num_options=5):
-        # Jeśli prompt jest pusty, używamy tokena początku sekwencji
         if not prompt: 
             prompt = self.tokenizer.bos_token if self.tokenizer.bos_token else " "
         
@@ -39,17 +39,18 @@ class Autocomplete:
             
         logits = outputs.logits[0, -1, :]
         
-        # Pobieramy szerszy zakres, aby odfiltrować duplikaty i puste znaki
+        # Pobieramy top-k logitów
         top_k_values, top_k_indices = torch.topk(logits, k=50)
         decoded = self.tokenizer.batch_decode([[tid] for tid in top_k_indices.tolist()])
         
         suggestions = []
         for word in decoded:
-            # Czyszczenie znaków specjalnych i białych znaków
+            # Czyszczenie specyficznych dla DeepSeek/Qwen tokenów technicznych (np. <|endoftext|>)
             clean_word = word.replace('\n', '').replace('\r', '').replace('\t', '')
             clean_word = clean_word.strip()
             
-            if not clean_word: 
+            # Pomijamy puste i tokeny myślowe (jeśli by się pojawiły w logitach)
+            if not clean_word or "<|im_start|>" in clean_word or "<thought>" in clean_word:
                 continue
                 
             if clean_word not in suggestions:
@@ -59,3 +60,4 @@ class Autocomplete:
                 break
                 
         return suggestions
+
