@@ -3,7 +3,7 @@ import time
 import torch
 from model import Autocomplete
 
-def run_smart_test(model_name, hf_token=None):
+def run_smart_test(model_name, hf_token="x"):
     # Inicjalizacja klasy z modelu.py
     try:
         ac = Autocomplete(model_name, hf_token=hf_token)
@@ -84,4 +84,4 @@ def run_smart_test(model_name, hf_token=None):
 if __name__ == "__main__":
     MY_HF_TOKEN = "-"
     
-    run_smart_test("meta-llama/Llama-3.2-1B", hf_token=MY_HF_TOKEN)
+    run_smart_test("meta-llama/Llama-3.2-1B", hf_token="x")

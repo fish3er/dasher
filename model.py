@@ -1,10 +1,11 @@
 import torch
+import torch_directml
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
 class Autocomplete:
-    def __init__(self, model_id="meta-llama/Llama-3.2-1B", hf_token=None):
+    def __init__(self, model_id="meta-llama/Llama-3.2-1B", hf_token="x"):
         self.model_id = model_id
-        self.device = "cuda" if torch.cuda.is_available() else "cpu"
+        self.device = torch_directml.device()
         
         # Ładowanie tokenizera
         self.tokenizer = AutoTokenizer.from_pretrained(self.model_id, token=hf_token)
@@ -17,8 +18,9 @@ class Autocomplete:
             self.model_id,
             token=hf_token,
             torch_dtype=dtype,
-            device_map="auto" if self.device == "cuda" else None
-        ).to(self.device if self.device == "cpu" else None)
+            # Jeśli device_map="auto" zawodzi, używamy bezpośredniego przypisania:
+            low_cpu_mem_usage=True
+        ).to(self.device)
         
         self.model.eval()
         
