@@ -1,29 +1,35 @@
 import torch
+import torch_directml
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
 class Autocomplete:
     def __init__(self, model_id="deepseek-ai/DeepSeek-R1-Distill-Qwen-1.5B", hf_token=None):
         self.model_id = model_id
-        self.device = "cuda" if torch.cuda.is_available() else "cpu"
         
-        print(f"Ładowanie modelu: {model_id}...")
+        # Inicjalizacja urządzenia DirectML (dla AMD na Windows)
+        print("Inicjalizacja DirectML dla karty AMD...")
+        self.device = torch_directml.device() 
+        
+        print(f"Ładowanie modelu: {model_id} na GPU przez DirectML...")
+        
         # Ładowanie tokenizera
         self.tokenizer = AutoTokenizer.from_pretrained(self.model_id, token=hf_token)
         
-        # Ustalenie typu danych (bfloat16 dla nowszych GPU, float16 dla starszych)
-        dtype = torch.bfloat16 if (torch.cuda.is_available() and torch.cuda.is_bf16_supported()) else torch.float16
+        # Uwaga: DirectML najlepiej radzi sobie z float16 lub float32. 
+        # bfloat16 może nie być w pełni wspierany przez sterownik DirectML na niektórych wersjach.
+        dtype = torch.float16 
         
-        # Ładowanie modelu
+        # W przypadku DirectML NIE używamy device_map="auto", bo biblioteka 'accelerate' 
+        # nie zawsze poprawnie rozpoznaje urządzenia DML jako GPU.
         self.model = AutoModelForCausalLM.from_pretrained(
             self.model_id,
             token=hf_token,
             torch_dtype=dtype,
-            device_map="auto" if self.device == "cuda" else None
-        ).to(self.device if self.device == "cpu" else None)
+            low_cpu_mem_usage=True
+        ).to(self.device) # Przenosimy model na GPU AMD
         
         self.model.eval()
         
-        # Qwen/DeepSeek zazwyczaj mają pad_token, ale na wszelki wypadek:
         if self.tokenizer.pad_token is None:
             self.tokenizer.pad_token = self.tokenizer.eos_token
 
@@ -31,27 +37,36 @@ class Autocomplete:
         if not prompt: 
             prompt = self.tokenizer.bos_token if self.tokenizer.bos_token else " "
         
+        # Przygotowanie wejścia i przeniesienie na urządzenie DML
         inputs = self.tokenizer(prompt, return_tensors='pt', truncation=True, max_length=512)
         inputs = {k: v.to(self.device) for k, v in inputs.items()}
         
         with torch.no_grad():
             outputs = self.model(**inputs)
             
-        logits = outputs.logits[0, -1, :]
+        # Logity pobieramy na CPU do dalszej obróbki
+        logits = outputs.logits[0, -1, :].cpu()
         
-        # Pobieramy top-k logitów
-        top_k_values, top_k_indices = torch.topk(logits, k=50)
+        top_k_indices = torch.topk(logits, k=50).indices
         decoded = self.tokenizer.batch_decode([[tid] for tid in top_k_indices.tolist()])
         
         suggestions = []
         for word in decoded:
-            # Czyszczenie specyficznych dla DeepSeek/Qwen tokenów technicznych (np. <|endoftext|>)
+            # Czyszczenie tokenów technicznych
             clean_word = word.replace('\n', '').replace('\r', '').replace('\t', '')
-            clean_word = clean_word.strip()
-            
-            # Pomijamy puste i tokeny myślowe (jeśli by się pojawiły w logitach)
-            if not clean_word or "<|im_start|>" in clean_word or "<thought>" in clean_word:
+            if any(tag in clean_word for tag in ["<|im_start|>", "<thought>", "<|endoftext|>"]):
                 continue
+            
+            # W autouzupełnianiu spacja na początku jest ważna, ale czyścimy resztę
+            # Zachowujemy spację, jeśli tokenizer ją dodał
+            if clean_word.startswith(' '):
+                # Jeśli to tylko spacje, pomijamy
+                if not clean_word.strip():
+                    continue
+            else:
+                clean_word = clean_word.strip()
+                if not clean_word:
+                    continue
                 
             if clean_word not in suggestions:
                 suggestions.append(clean_word)
