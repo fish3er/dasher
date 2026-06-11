@@ -56,19 +56,24 @@ class BeamSearch:
         import llama_cpp
         import numpy as np  # noqa: F401  (sprawdzamy dostępność wcześnie)
         from llama_cpp import Llama
+        # Bindingi C: to ICH namespace (a nie pakietu llama_cpp) używa llama.py
+        # wewnątrz — patch musi trafić tutaj, inaczej jest no-opem.
+        from llama_cpp import llama_cpp as C
 
         # Ile równoległych sekwencji obsłuży kontekst (ograniczone przez llama.cpp).
         cap = _MAX_PARALLEL_SEQS
         try:
-            cap = min(cap, int(llama_cpp.llama_max_parallel_sequences()))
+            cap = min(cap, int(C.llama_max_parallel_sequences()))
         except Exception:  # pragma: no cover - zależne od wersji
             pass
         self._max_seqs = max(1, cap)
 
-        # Domyślne parametry kontekstu w llama-cpp-python ustawiają n_seq_max=1 dla
-        # zwykłego (nie-embedding) modelu, przez co batch z seq_id>=1 powoduje błąd
-        # llama_decode (-1). Podbijamy n_seq_max tuż przed utworzeniem kontekstu.
-        _orig_params = llama_cpp.llama_context_default_params
+        # llama-cpp-python tworzy kontekst z n_seq_max=1 dla modeli nie-embedding,
+        # przez co batch z seq_id>=1 wywala llama_decode (init: invalid seq_id ... >= 1).
+        # Podbijamy n_seq_max tuż przed utworzeniem kontekstu. UWAGA: llama.py wiąże
+        # `import llama_cpp.llama_cpp as llama_cpp`, więc patchujemy SUBMODUŁ C, nie
+        # re-eksport w pakiecie — inaczej patch nie ma żadnego efektu.
+        _orig_params = C.llama_context_default_params
 
         def _patched_params():  # type: ignore[no-untyped-def]
             params = _orig_params()
@@ -77,7 +82,7 @@ class BeamSearch:
             return params
 
         logger.info("Ładowanie modelu GGUF: %s (n_gpu_layers=%d)", gguf_path, n_gpu_layers)
-        llama_cpp.llama_context_default_params = _patched_params
+        C.llama_context_default_params = _patched_params
         try:
             self._llama = Llama(
                 model_path=gguf_path,
@@ -89,16 +94,19 @@ class BeamSearch:
                 verbose=False,
             )
         finally:
-            llama_cpp.llama_context_default_params = _orig_params
+            C.llama_context_default_params = _orig_params
 
         self._eos = self._llama.token_eos()
         self._n_vocab = self._llama.n_vocab()
         # Surowy wskaźnik kontekstu + handle pamięci KV (do niskopoziomowego batcha).
         self._ctx = self._llama.ctx
-        self._mem = llama_cpp.llama_get_memory(self._ctx)
+        self._mem = C.llama_get_memory(self._ctx)
+        # Faktyczny n_seq_max kontekstu — weryfikujemy, że patch zadziałał, bo to
+        # warunek poprawnego batchowania wielu beamów w jednym llama_decode.
+        self._ctx_seq_max = int(C.llama_n_seq_max(self._ctx))
         logger.info(
             "Model załadowany (n_vocab=%d, eos=%d, n_seq_max=%d).",
-            self._n_vocab, self._eos, self._max_seqs,
+            self._n_vocab, self._eos, self._ctx_seq_max,
         )
 
     # ------------------------------------------------------------------
@@ -225,48 +233,63 @@ class BeamSearch:
         return [(int(i), float(logprobs[i])) for i in idx]
 
     def _decode_last(self, sequences: list[list[int]]):
-        """Zdekoduj sekwencje i zwróć logity ich ostatnich tokenów.
+        """Zdekoduj WSZYSTKIE sekwencje w jednym wywołaniu `llama_decode`, zwróć
+        logity ich ostatnich tokenów.
 
-        Dekodowanie jest *sekwencyjne*: każda sekwencja trafia do osobnego
-        wywołania `llama_decode` na seq_id=0, z czyszczeniem KV-cache pomiędzy.
-        Batchowanie wielu sekwencji naraz (seq_id>=1) zawodzi na modelu Gemma z
-        przeplatanym cache'em SWA — `llama_decode` zwraca wtedy -1 niezależnie od
-        łącznej liczby tokenów (potwierdzone diagnostyką: 1 sekwencja przechodzi,
-        9 sekwencji o 135 tokenach < n_batch=512 zawodzi). Wolniej, ale stabilnie;
-        logika beam searcha pozostaje bez zmian.
+        Każda sekwencja dostaje własny `seq_id`; KV-cache jest czyszczony przed
+        wywołaniem, więc pozycje liczone są od zera per sekwencja. To kluczowa
+        optymalizacja: koszt `llama_decode` jest zdominowany przez stały narzut
+        wywołania (~kilkanaście ms), więc batchowanie B beamów w 1 wywołaniu zamiast
+        B osobnych daje ~B-krotne przyspieszenie. Warunkiem jest n_seq_max kontekstu
+        >= liczby sekwencji (patrz patch n_seq_max w __init__).
         """
+        import llama_cpp
         import numpy as np
 
-        out: list[np.ndarray] = []
-        for seq in sequences:
-            out.append(self._decode_one_last(seq))
-        return out
+        if len(sequences) > self._ctx_seq_max:
+            # Zabezpieczenie: gdyby ktoś podał beam_width > n_seq_max, batch by się
+            # wywalił (init: invalid seq_id). Dekodujemy wtedy w porcjach.
+            out: list[np.ndarray] = []
+            for i in range(0, len(sequences), self._ctx_seq_max):
+                out.extend(self._decode_batch(sequences[i : i + self._ctx_seq_max]))
+            return out
+        return self._decode_batch(sequences)
 
-    def _decode_one_last(self, seq: list[int]):
-        """Zdekoduj jedną sekwencję (seq_id=0) i zwróć logity ostatniego tokenu."""
+    def _decode_batch(self, sequences: list[list[int]]):
+        """Pojedynczy batchowany llama_decode dla <= n_seq_max sekwencji."""
         import llama_cpp
         import numpy as np
 
         self._kv_clear()
 
-        n = len(seq)
-        batch = llama_cpp.llama_batch_init(n, 0, 1)
+        total = sum(len(s) for s in sequences)
+        batch = llama_cpp.llama_batch_init(total, 0, len(sequences))
         try:
-            last = n - 1
-            for pos, tok in enumerate(seq):
-                batch.token[pos] = tok
-                batch.pos[pos] = pos
-                batch.n_seq_id[pos] = 1
-                batch.seq_id[pos][0] = 0
-                batch.logits[pos] = 1 if pos == last else 0
-            batch.n_tokens = n
+            idx = 0
+            last_indices: list[int] = []
+            for seq_id, seq in enumerate(sequences):
+                last = len(seq) - 1
+                for pos, tok in enumerate(seq):
+                    batch.token[idx] = tok
+                    batch.pos[idx] = pos
+                    batch.n_seq_id[idx] = 1
+                    batch.seq_id[idx][0] = seq_id
+                    is_last = pos == last
+                    batch.logits[idx] = 1 if is_last else 0
+                    if is_last:
+                        last_indices.append(idx)
+                    idx += 1
+            batch.n_tokens = total
 
             rc = llama_cpp.llama_decode(self._ctx, batch)
             if rc != 0:
                 raise RuntimeError(f"llama_decode zwróciło kod {rc}")
 
-            ptr = llama_cpp.llama_get_logits_ith(self._ctx, last)
-            return np.ctypeslib.as_array(ptr, shape=(self._n_vocab,)).copy()
+            out = []
+            for i in last_indices:
+                ptr = llama_cpp.llama_get_logits_ith(self._ctx, i)
+                out.append(np.ctypeslib.as_array(ptr, shape=(self._n_vocab,)).copy())
+            return out
         finally:
             llama_cpp.llama_batch_free(batch)
 
