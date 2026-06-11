@@ -42,7 +42,7 @@ class EvalConfig:
     dataset: Path
     gguf: Path
     n_suggestions: int = 5
-    beam_width: int = 10
+    beam_width: int = 5
     results_dir: Path = Path("results")
     seed: int = 42
     n_gpu_layers: int = -1
@@ -277,7 +277,7 @@ def parse_args(argv: list[str] | None = None) -> EvalConfig:
     parser.add_argument("--dataset", type=Path, required=True, help="Plik .txt z polskim tekstem")
     parser.add_argument("--gguf", type=Path, required=True, help="Ścieżka do modelu .gguf (Gemma 4)")
     parser.add_argument("--n-suggestions", type=int, default=5, help="Liczba podpowiedzi (K), domyślnie 5")
-    parser.add_argument("--beam-width", type=int, default=10, help="Szerokość beam searcha, domyślnie 10")
+    parser.add_argument("--beam-width", type=int, default=5, help="Szerokość beam searcha, domyślnie 5")
     parser.add_argument("--results-dir", type=Path, default=Path("results"), help="Katalog na raport JSON")
     parser.add_argument("--seed", type=int, default=42, help="Seed RNG dla reprodukowalności splitów")
     parser.add_argument(
