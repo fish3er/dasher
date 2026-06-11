@@ -1,375 +1,334 @@
-# eval.py
-# Corpus: plain UTF-8 text file, one sentence per line.
-# Ideally Polish text to match the Dasher model's use case.
+"""Ewaluacja beam searcha (Gemma 4 GGUF) na polskim korpusie tekstowym.
 
-import abc
+Użycie:
+    python eval.py --dataset test.txt --gguf gemma4.gguf \
+        [--n-suggestions 5] [--beam-width 10] [--results-dir results] [--seed 42]
+
+Z każdego zdania korpusu tworzone są dwa test case'y (mid-word + word-boundary),
+dla których liczone są metryki: MRR@K, Hit@1, Hit@K, KSR oraz latencja.
+"""
+
+from __future__ import annotations
+
 import argparse
 import json
-import math
+import logging
+import random
 import re
+import statistics
 import time
-from typing import Optional
+from dataclasses import asdict, dataclass
+from datetime import datetime
+from pathlib import Path
 
-import torch
-from transformers import AutoModelForCausalLM, AutoTokenizer
+from beam_search import LEVEL_MID_WORD, LEVEL_WORD_BOUNDARY, BeamSearch, Suggestion
 
+logger = logging.getLogger("eval")
 
-MODEL_ID = "google/gemma-3-1b-it"
-BOUNDARY_RE = re.compile(r"[\s.,!?;:]")
-PUNCT_RE = re.compile(r"[.,!?;:]")
+_SENTENCE_SPLIT_RE = re.compile(r"[.!?]+")
+_WORD_RE = re.compile(r"\S+")
+_STRIP_PUNCT_RE = re.compile(r"^\W+|\W+$", re.UNICODE)
 
-
-# ---------------------------------------------------------------------------
-# Abstract base class
-# ---------------------------------------------------------------------------
-
-class AutocompleteBackend(abc.ABC):
-    name: str = "unnamed"
-
-    @abc.abstractmethod
-    def predict(self, prompt: str, num_options: int) -> list[str]:
-        ...
+MIN_SENTENCE_LEN = 20
+MIN_WORD_LEN = 3
 
 
 # ---------------------------------------------------------------------------
-# Backends
+# Konfiguracja
 # ---------------------------------------------------------------------------
 
-class TopKBackend(AutocompleteBackend):
-    """Current approach: top-k=40 single-token logit decoding."""
-
-    name = "TopK"
-
-    def __init__(self, model, tokenizer, device: str):
-        self.model = model
-        self.tokenizer = tokenizer
-        self.device = device
-
-    def predict(self, prompt: str, num_options: int) -> list[str]:
-        if not prompt:
-            prompt = " "
-        inputs = self.tokenizer(prompt, return_tensors="pt", truncation=True, max_length=128)
-        inputs = {k: v.to(self.device) for k, v in inputs.items()}
-        with torch.no_grad():
-            outputs = self.model(**inputs)
-        logits = outputs.logits[0, -1, :]
-        top_k_ids = torch.topk(logits, k=40).indices.tolist()
-        decoded = self.tokenizer.batch_decode([[tid] for tid in top_k_ids])
-        seen: set[str] = set()
-        suggestions: list[str] = []
-        for token in decoded:
-            clean = PUNCT_RE.sub("", token).replace("\n", "").replace("\r", "").replace("\t", "").strip()
-            if not clean:
-                continue
-            if clean not in seen:
-                seen.add(clean)
-                suggestions.append(clean)
-            if len(suggestions) >= num_options:
-                break
-        return suggestions
+@dataclass(frozen=True)
+class EvalConfig:
+    dataset: Path
+    gguf: Path
+    n_suggestions: int = 5
+    beam_width: int = 10
+    results_dir: Path = Path("results")
+    seed: int = 42
+    n_gpu_layers: int = -1
 
 
-class GreedyBackend(AutocompleteBackend):
-    """Greedy decode (num_beams=1, do_sample=False); returns at most one suggestion."""
-
-    name = "Greedy"
-
-    def __init__(self, model, tokenizer, device: str):
-        self.model = model
-        self.tokenizer = tokenizer
-        self.device = device
-
-    def predict(self, prompt: str, num_options: int) -> list[str]:
-        if not prompt:
-            prompt = " "
-        mid_word = prompt[-1] != " "
-        word_prefix = prompt.split(" ")[-1] if mid_word else ""
-
-        inputs = self.tokenizer(prompt, return_tensors="pt", truncation=True, max_length=128)
-        inputs = {k: v.to(self.device) for k, v in inputs.items()}
-        input_len = inputs["input_ids"].shape[1]
-
-        with torch.no_grad():
-            output_ids = self.model.generate(
-                **inputs,
-                num_beams=1,
-                do_sample=False,
-                max_new_tokens=8,
-            )
-
-        cont = self.tokenizer.decode(output_ids[0][input_len:], skip_special_tokens=True)
-
-        if mid_word:
-            if not cont or cont[0] == " ":
-                return []
-            m = BOUNDARY_RE.search(cont)
-            suffix = cont[: m.start()] if m else cont
-            suggestion = (word_prefix + suffix).strip().strip(".,!?;:")
-        else:
-            cont = cont.lstrip()
-            if not cont:
-                return []
-            m = BOUNDARY_RE.search(cont)
-            suggestion = (cont[: m.start()] if m else cont).strip().strip(".,!?;:")
-
-        return [suggestion] if suggestion else []
+@dataclass
+class TestCase:
+    prefix: str
+    ground_truth: str
+    level: str
 
 
-class BeamSearchBackend(AutocompleteBackend):
-    """Beam search with num_beams=8, returns up to num_options diverse completions."""
-
-    name = "BeamSearch"
-
-    def __init__(self, model, tokenizer, device: str):
-        self.model = model
-        self.tokenizer = tokenizer
-        self.device = device
-
-    def predict(self, prompt: str, num_options: int) -> list[str]:
-        if not prompt:
-            prompt = " "
-        mid_word = prompt[-1] != " "
-        word_prefix = prompt.split(" ")[-1] if mid_word else ""
-
-        inputs = self.tokenizer(prompt, return_tensors="pt", truncation=True, max_length=128)
-        inputs = {k: v.to(self.device) for k, v in inputs.items()}
-        input_len = inputs["input_ids"].shape[1]
-
-        with torch.no_grad():
-            output_ids = self.model.generate(
-                **inputs,
-                num_beams=8,
-                num_return_sequences=8,
-                max_new_tokens=8,
-                early_stopping=True,
-                no_repeat_ngram_size=2,
-            )
-
-        seen: set[str] = set()
-        suggestions: list[str] = []
-        for beam in output_ids:
-            cont = self.tokenizer.decode(beam[input_len:], skip_special_tokens=True)
-            if mid_word:
-                if not cont or cont[0] == " ":
-                    continue
-                m = BOUNDARY_RE.search(cont)
-                suffix = cont[: m.start()] if m else cont
-                suggestion = word_prefix + suffix
-            else:
-                cont = cont.lstrip()
-                if not cont:
-                    continue
-                m = BOUNDARY_RE.search(cont)
-                suggestion = cont[: m.start()] if m else cont
-
-            suggestion = suggestion.strip().strip(".,!?;:")
-            if suggestion and suggestion not in seen:
-                seen.add(suggestion)
-                suggestions.append(suggestion)
-            if len(suggestions) >= num_options:
-                break
-
-        return suggestions
+@dataclass
+class SampleResult:
+    prefix: str
+    ground_truth: str
+    level: str
+    suggestions: list[str]
+    hit: bool
+    rank: int  # 1-based pozycja pierwszego trafienia, 0 jeśli brak
+    latency_ms: float
 
 
 # ---------------------------------------------------------------------------
-# Metrics helpers
+# Parsowanie korpusu i budowa test case'ów
 # ---------------------------------------------------------------------------
 
-def compute_perplexity(text: str, model, tokenizer, device: str) -> Optional[float]:
-    """Token-level perplexity of text under the model. Returns None if not computable."""
-    if not text.strip():
-        return None
-    enc = tokenizer(text, return_tensors="pt", truncation=True, max_length=64)
-    enc = {k: v.to(device) for k, v in enc.items()}
-    # Need at least 2 tokens to get a meaningful loss
-    if enc["input_ids"].shape[1] < 2:
-        return None
-    with torch.no_grad():
-        out = model(**enc, labels=enc["input_ids"])
-    loss = out.loss.item()
-    if not math.isfinite(loss):
-        return None
-    return math.exp(loss)
+def parse_sentences(text: str) -> list[str]:
+    """Podziel tekst po `.!?` i odrzuć zdania krótsze niż MIN_SENTENCE_LEN znaków."""
+    sentences = []
+    for raw in _SENTENCE_SPLIT_RE.split(text):
+        s = " ".join(raw.split())  # normalizacja białych znaków
+        if len(s) >= MIN_SENTENCE_LEN:
+            sentences.append(s)
+    return sentences
 
 
-def get_target_word(sentence: str, pos: int) -> tuple[str, int, int]:
-    """
-    At keystroke position pos (user has typed sentence[:pos]):
-    Returns (target_word, chars_typed_in_word, total_word_len).
-
-    Mid-word: target is the word currently being typed.
-    Next-word: target is the first upcoming word.
-    """
-    if pos == 0:
-        return "", 0, 0
-    prompt = sentence[:pos]
-    mid_word = prompt[-1] != " "
-
-    if mid_word:
-        word_start = max(prompt.rfind(" ") + 1, 0)
-        chars_typed = pos - word_start
-        rest = sentence[word_start:]
-        m = BOUNDARY_RE.search(rest)
-        word = rest[: m.start()] if m else rest
-        return word, chars_typed, len(word)
-    else:
-        rest = sentence[pos:].lstrip()
-        if not rest:
-            return "", 0, 0
-        m = BOUNDARY_RE.search(rest)
-        word = rest[: m.start()] if m else rest
-        return word, 0, len(word)
+def _clean_word(word: str) -> str:
+    return _STRIP_PUNCT_RE.sub("", word)
 
 
-# ---------------------------------------------------------------------------
-# Evaluation loop
-# ---------------------------------------------------------------------------
+def make_test_cases(sentence: str, rng: random.Random) -> list[TestCase]:
+    """Z jednego zdania zbuduj test case mid-word oraz word-boundary."""
+    cases: list[TestCase] = []
+    words = list(_WORD_RE.finditer(sentence))
+    if not words:
+        return cases
 
-def evaluate_backend(
-    backend: AutocompleteBackend,
-    sentences: list[str],
-    num_options: int,
-    model,
-    tokenizer,
-    device: str,
-) -> dict:
-    top1_hits: list[int] = []
-    top3_hits: list[int] = []
-    top5_hits: list[int] = []
-    latencies: list[float] = []
-    ksrs: list[float] = []
-    perplexities: list[float] = []
+    # --- mid_word: losowy split w środku losowego słowa (min MIN_WORD_LEN znaków) ---
+    eligible = [m for m in words if len(_clean_word(m.group())) >= MIN_WORD_LEN]
+    if eligible:
+        m = rng.choice(eligible)
+        word = m.group()
+        # Punkt cięcia w środku słowa: od 1 do len-1 znaków wpisanych.
+        cut = rng.randint(1, len(word) - 1)
+        prefix = sentence[: m.start() + cut]
+        ground_truth = _clean_word(word[cut:])
+        if prefix and prefix[-1] != " " and ground_truth:
+            cases.append(TestCase(prefix=prefix, ground_truth=ground_truth, level=LEVEL_MID_WORD))
 
-    total_steps = sum(len(s) for s in sentences)
-    step = 0
+    # --- word_boundary: prefix kończy się spacją, ground_truth = następne słowo ---
+    if len(words) >= 2:
+        m = rng.choice(words[1:])  # dowolne słowo poza pierwszym jest "następnym"
+        prefix = sentence[: m.start()]
+        ground_truth = _clean_word(m.group())
+        if not prefix.endswith(" "):
+            prefix = prefix.rstrip() + " "
+        if ground_truth:
+            cases.append(TestCase(prefix=prefix, ground_truth=ground_truth, level=LEVEL_WORD_BOUNDARY))
 
+    return cases
+
+
+def build_test_cases(sentences: list[str], rng: random.Random) -> list[TestCase]:
+    cases: list[TestCase] = []
     for sentence in sentences:
-        for pos in range(1, len(sentence) + 1):
-            step += 1
-            if step % 100 == 0:
-                print(f"  [{backend.name}] {step}/{total_steps} steps", flush=True)
+        cases.extend(make_test_cases(sentence, rng))
+    return cases
 
-            target, chars_typed, word_len = get_target_word(sentence, pos)
-            if not target or word_len == 0:
-                continue
 
-            t0 = time.perf_counter()
-            suggestions = backend.predict(sentence[:pos], num_options)
-            latencies.append((time.perf_counter() - t0) * 1000)
+# ---------------------------------------------------------------------------
+# Dopasowanie i metryki
+# ---------------------------------------------------------------------------
 
-            target_lower = target.lower()
-            sug_lower = [s.lower() for s in suggestions]
+def _matches(suggestion: str, ground_truth: str) -> bool:
+    """Trafienie: jedna z fraz jest prefiksem drugiej (case-insensitive)."""
+    s = suggestion.lower()
+    g = ground_truth.lower()
+    if not s or not g:
+        return False
+    return s.startswith(g) or g.startswith(s)
 
-            top1_hits.append(int(target_lower in sug_lower[:1]))
-            top3_hits.append(int(target_lower in sug_lower[:3]))
-            top5_hits.append(int(target_lower in sug_lower[:5]))
 
-            chars_remaining = word_len - chars_typed
-            if target_lower in sug_lower[:num_options] and word_len > 0:
-                ksrs.append(chars_remaining / word_len)
-            else:
-                ksrs.append(0.0)
+def first_hit_rank(suggestions: list[Suggestion], ground_truth: str) -> int:
+    """1-based pozycja pierwszego trafienia, 0 jeśli żadna sugestia nie pasuje."""
+    for i, sug in enumerate(suggestions, start=1):
+        if _matches(sug.text, ground_truth):
+            return i
+    return 0
 
-            for s in suggestions:
-                ppl = compute_perplexity(s, model, tokenizer, device)
-                if ppl is not None:
-                    perplexities.append(ppl)
 
-    def mean(lst: list) -> float:
-        return sum(lst) / len(lst) if lst else 0.0
+def _percentile(values: list[float], pct: float) -> float:
+    if not values:
+        return 0.0
+    ordered = sorted(values)
+    k = (len(ordered) - 1) * pct
+    lo = int(k)
+    hi = min(lo + 1, len(ordered) - 1)
+    return ordered[lo] + (ordered[hi] - ordered[lo]) * (k - lo)
+
+
+def compute_metrics(results: list[SampleResult], k: int) -> dict:
+    """Policz MRR@K, Hit@1, Hit@K, KSR i latencję dla zbioru wyników."""
+    if not results:
+        return {}
+
+    rr = [1.0 / r.rank if r.rank > 0 else 0.0 for r in results]
+    hit_at_1 = [1.0 if 0 < r.rank <= 1 else 0.0 for r in results]
+    hit_at_k = [1.0 if r.hit else 0.0 for r in results]
+    latencies = [r.latency_ms for r in results]
+
+    # KSR = 1 - (kliknięcia z modelem / kliknięcia bez modelu).
+    # Bez modelu: użytkownik wpisuje całe ground_truth. Z modelem: 1 wybór, jeśli
+    # podpowiedź trafia w top-K, w przeciwnym razie pełne wpisanie.
+    cost_without = sum(len(r.ground_truth) for r in results)
+    cost_with = sum(1 if r.hit else len(r.ground_truth) for r in results)
+    ksr = 1.0 - (cost_with / cost_without) if cost_without else 0.0
 
     return {
-        "top1_accuracy": mean(top1_hits),
-        "top3_accuracy": mean(top3_hits),
-        "top5_accuracy": mean(top5_hits),
-        "mean_latency_ms": mean(latencies),
-        "ksr": mean(ksrs),
-        "mean_perplexity": mean(perplexities),
-        "total_keystrokes": len(top1_hits),
+        f"mrr_at_{k}": statistics.fmean(rr),
+        "hit_at_1": statistics.fmean(hit_at_1),
+        f"hit_at_{k}": statistics.fmean(hit_at_k),
+        "ksr": ksr,
+        "latency_mean_ms": statistics.fmean(latencies),
+        "latency_p50_ms": _percentile(latencies, 0.50),
+        "latency_p95_ms": _percentile(latencies, 0.95),
+        "n_samples": len(results),
     }
 
 
 # ---------------------------------------------------------------------------
-# Output
+# Pętla ewaluacji
 # ---------------------------------------------------------------------------
 
-def print_table(results: dict[str, dict]) -> None:
-    headers = ["Backend", "Top-1", "Top-3", "Top-5", "Latency(ms)", "KSR", "Perplexity"]
-    widths  = [13,         7,       7,       7,       12,            8,     11]
+def evaluate(backend: BeamSearch, cases: list[TestCase], cfg: EvalConfig) -> list[SampleResult]:
+    results: list[SampleResult] = []
+    total = len(cases)
+    for i, case in enumerate(cases, start=1):
+        t0 = time.perf_counter()
+        suggestions = backend.suggest(case.prefix, n=cfg.n_suggestions, beam_width=cfg.beam_width)
+        latency_ms = (time.perf_counter() - t0) * 1000.0
 
-    def row_str(cells: list[str]) -> str:
+        rank = first_hit_rank(suggestions, case.ground_truth)
+        results.append(
+            SampleResult(
+                prefix=case.prefix,
+                ground_truth=case.ground_truth,
+                level=case.level,
+                suggestions=[s.text for s in suggestions],
+                hit=rank > 0,
+                rank=rank,
+                latency_ms=latency_ms,
+            )
+        )
+        if i % 50 == 0 or i == total:
+            logger.info("Ewaluacja: %d/%d test case'ów", i, total)
+    return results
+
+
+# ---------------------------------------------------------------------------
+# Wyjście
+# ---------------------------------------------------------------------------
+
+def _format_table(metrics_by_group: dict[str, dict], k: int) -> str:
+    headers = ["Grupa", f"MRR@{k}", "Hit@1", f"Hit@{k}", "KSR", "Lat.mean", "Lat.p50", "Lat.p95", "N"]
+    widths = [14, 8, 7, 8, 7, 9, 9, 9, 6]
+
+    def row(cells: list[str]) -> str:
         return "  ".join(f"{c:<{w}}" for c, w in zip(cells, widths))
 
-    print(row_str(headers))
-    print(row_str(["-" * w for w in widths]))
-    for name, m in results.items():
-        cells = [
-            name,
-            f"{m['top1_accuracy']:.3f}",
-            f"{m['top3_accuracy']:.3f}",
-            f"{m['top5_accuracy']:.3f}",
-            f"{m['mean_latency_ms']:.1f}",
-            f"{m['ksr']:.3f}",
-            f"{m['mean_perplexity']:.1f}",
-        ]
-        print(row_str(cells))
-
-
-# ---------------------------------------------------------------------------
-# Entry point
-# ---------------------------------------------------------------------------
-
-def main() -> None:
-    parser = argparse.ArgumentParser(
-        description="Benchmark Dasher autocomplete backends against a text corpus."
-    )
-    parser.add_argument("--corpus", required=True, help="UTF-8 text file, one sentence per line")
-    parser.add_argument("--num-options", type=int, default=5, help="Suggestions per predict() call (default: 5)")
-    parser.add_argument("--device", default=None, choices=["cpu", "cuda"], help="Override device auto-detection")
-    args = parser.parse_args()
-
-    device = args.device or ("cuda" if torch.cuda.is_available() else "cpu")
-    print(f"Device : {device}")
-    print(f"Model  : {MODEL_ID}")
-
-    tokenizer = AutoTokenizer.from_pretrained(MODEL_ID)
-    model = AutoModelForCausalLM.from_pretrained(
-        MODEL_ID,
-        torch_dtype=torch.float16 if device == "cuda" else torch.float32,
-    ).to(device)
-    model.eval()
-    print("Model loaded.\n")
-
-    with open(args.corpus, encoding="utf-8") as fh:
-        sentences = [line.strip() for line in fh if line.strip()]
-    print(f"Corpus : {args.corpus}  ({len(sentences)} sentences)\n")
-
-    backends: list[AutocompleteBackend] = [
-        TopKBackend(model, tokenizer, device),
-        GreedyBackend(model, tokenizer, device),
-        BeamSearchBackend(model, tokenizer, device),
-    ]
-
-    all_results: dict[str, dict] = {}
-    for backend in backends:
-        print(f"--- Evaluating {backend.name} ---")
-        metrics = evaluate_backend(backend, sentences, args.num_options, model, tokenizer, device)
-        all_results[backend.name] = metrics
-        print(
-            f"  Top-1={metrics['top1_accuracy']:.3f}  "
-            f"Latency={metrics['mean_latency_ms']:.1f}ms  "
-            f"KSR={metrics['ksr']:.3f}  "
-            f"keystrokes={metrics['total_keystrokes']}\n"
+    lines = [row(headers), row(["-" * w for w in widths])]
+    for group, m in metrics_by_group.items():
+        if not m:
+            continue
+        lines.append(
+            row(
+                [
+                    group,
+                    f"{m[f'mrr_at_{k}']:.3f}",
+                    f"{m['hit_at_1']:.3f}",
+                    f"{m[f'hit_at_{k}']:.3f}",
+                    f"{m['ksr']:.3f}",
+                    f"{m['latency_mean_ms']:.1f}",
+                    f"{m['latency_p50_ms']:.1f}",
+                    f"{m['latency_p95_ms']:.1f}",
+                    str(m["n_samples"]),
+                ]
+            )
         )
+    return "\n".join(lines)
 
-    print("=== Comparison ===\n")
-    print_table(all_results)
 
-    out_path = "results.json"
-    with open(out_path, "w", encoding="utf-8") as fh:
-        json.dump(all_results, fh, indent=2, ensure_ascii=False)
-    print(f"\nResults saved to {out_path}")
+def write_report(cfg: EvalConfig, overall: dict, by_level: dict, results: list[SampleResult]) -> Path:
+    cfg.results_dir.mkdir(parents=True, exist_ok=True)
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    out_path = cfg.results_dir / f"eval_{cfg.dataset.stem}_{timestamp}.json"
+
+    report = {
+        "model": cfg.gguf.name,
+        "dataset": cfg.dataset.name,
+        "n_suggestions": cfg.n_suggestions,
+        "beam_width": cfg.beam_width,
+        "seed": cfg.seed,
+        "n_samples": len(results),
+        "metrics": overall,
+        "metrics_by_level": by_level,
+        "per_sample": [asdict(r) for r in results],
+    }
+    with out_path.open("w", encoding="utf-8") as fh:
+        json.dump(report, fh, indent=2, ensure_ascii=False)
+    return out_path
+
+
+# ---------------------------------------------------------------------------
+# CLI
+# ---------------------------------------------------------------------------
+
+def parse_args(argv: list[str] | None = None) -> EvalConfig:
+    parser = argparse.ArgumentParser(
+        description="Ewaluacja beam searcha (Gemma 4 GGUF) na polskim korpusie."
+    )
+    parser.add_argument("--dataset", type=Path, required=True, help="Plik .txt z polskim tekstem")
+    parser.add_argument("--gguf", type=Path, required=True, help="Ścieżka do modelu .gguf (Gemma 4)")
+    parser.add_argument("--n-suggestions", type=int, default=5, help="Liczba podpowiedzi (K), domyślnie 5")
+    parser.add_argument("--beam-width", type=int, default=10, help="Szerokość beam searcha, domyślnie 10")
+    parser.add_argument("--results-dir", type=Path, default=Path("results"), help="Katalog na raport JSON")
+    parser.add_argument("--seed", type=int, default=42, help="Seed RNG dla reprodukowalności splitów")
+    parser.add_argument(
+        "--n-gpu-layers", type=int, default=-1, help="Warstwy na GPU (-1 = cały model), domyślnie -1"
+    )
+    args = parser.parse_args(argv)
+    return EvalConfig(
+        dataset=args.dataset,
+        gguf=args.gguf,
+        n_suggestions=args.n_suggestions,
+        beam_width=args.beam_width,
+        results_dir=args.results_dir,
+        seed=args.seed,
+        n_gpu_layers=args.n_gpu_layers,
+    )
+
+
+def main(argv: list[str] | None = None) -> None:
+    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
+    cfg = parse_args(argv)
+
+    if not cfg.dataset.is_file():
+        raise SystemExit(f"Nie znaleziono pliku korpusu: {cfg.dataset}")
+    if not cfg.gguf.is_file():
+        raise SystemExit(f"Nie znaleziono modelu GGUF: {cfg.gguf}")
+
+    rng = random.Random(cfg.seed)
+    text = cfg.dataset.read_text(encoding="utf-8")
+    sentences = parse_sentences(text)
+    logger.info("Wczytano %d zdań z %s", len(sentences), cfg.dataset)
+
+    cases = build_test_cases(sentences, rng)
+    logger.info("Zbudowano %d test case'ów", len(cases))
+    if not cases:
+        raise SystemExit("Brak test case'ów — czy korpus zawiera wystarczająco długie zdania?")
+
+    backend = BeamSearch(str(cfg.gguf), n_gpu_layers=cfg.n_gpu_layers)
+    results = evaluate(backend, cases, cfg)
+
+    overall = compute_metrics(results, cfg.n_suggestions)
+    by_level = {
+        level: compute_metrics([r for r in results if r.level == level], cfg.n_suggestions)
+        for level in (LEVEL_MID_WORD, LEVEL_WORD_BOUNDARY)
+    }
+
+    table = _format_table({"overall": overall, **by_level}, cfg.n_suggestions)
+    print("\n=== Wyniki ewaluacji ===\n")
+    print(table)
+
+    out_path = write_report(cfg, overall, by_level, results)
+    print(f"\nRaport zapisany do: {out_path}")
 
 
 if __name__ == "__main__":
