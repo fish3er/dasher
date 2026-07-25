@@ -24,8 +24,9 @@ _BOUNDARY_RE = re.compile(r"[\s.,!?;:„”«»()\[\]\"'\-]")
 LEVEL_MID_WORD = "mid_word"
 LEVEL_WORD_BOUNDARY = "word_boundary"
 
-# Maksymalna liczba tokenów dokończenia na beam. 6 wystarcza dla pojedynczego
-# słowa (PL ~2-4 tokeny) — pomiary pokazują 0 utraty jakości względem 12.
+# Maksymalna liczba tokenów dokończenia na beam. 6 to kompromis latencja/jakość;
+# polska fleksja bywa cięta grubo (5-7 tokenów), więc cap 6 leży na granicy —
+# porównanie 12 vs 6 pod poprawionym matcherem (P4) jest osobnym krokiem eval.
 _MAX_NEW_TOKENS = 6
 
 # Górny limit równoległych sekwencji (beamów) w jednym batchu. Kontekst llama
@@ -39,6 +40,7 @@ class Suggestion(NamedTuple):
     text: str
     score: float
     level: str
+    complete: bool  # czy dokończenie dobiło do granicy słowa / EOS (pełne słowo)
 
 
 class _Beam(NamedTuple):
@@ -145,8 +147,12 @@ class BeamSearch:
                 for tok, lp in self._topk_logprobs(logits, beam_width):
                     candidates.append((beam.logprob + lp, beam, tok, lp))
 
-            # Pruning po skumulowanym log-probie (standardowy beam search).
-            candidates.sort(key=lambda c: c[0], reverse=True)
+            # P3: ranking rozwinięć po ZNORMALIZOWANYM skumulowanym log-probie
+            # (skumulowany / liczba tokenów), spójnie z rankingiem w _finalize.
+            # Wszystkie aktywne beamy mają na danym kroku tę samą długość, więc dla
+            # SAMEGO wyboru rozwinięć jest to równoważne sortowaniu po skumulowanym;
+            # zapisujemy tak jawnie, by pruning i ranking końcowy liczyły to samo.
+            candidates.sort(key=lambda c: (c[0]) / (len(c[1].tokens) + 1), reverse=True)
 
             done_beams = [b for b in beams if b.complete]
             new_beams: list[_Beam] = []
@@ -158,11 +164,19 @@ class BeamSearch:
                 cont = full_text[len(prefix_text):]
                 text, boundary = self._extract(level, cont)
                 complete = boundary or tok == self._eos
+                # P2 (a): mid_word beam zamknięty spacją/EOS to PUSTE dokończenie
+                # (model uznał słowo za skończone). Taki beam ma wysoki log-prob i
+                # bez tego wypełnia slot pustką, wypychając realne beamy w kolejnych
+                # krokach i obcinając listę sugestii. Pomijamy go — pętla dobierze
+                # następnego (niepustego) kandydata z puli (backfill).
+                if complete and level == LEVEL_MID_WORD and not text:
+                    continue
                 new_beams.append(_Beam(tokens=tokens, logprob=cum_lp, text=text, complete=complete))
 
-            beams = done_beams + new_beams
-            beams.sort(key=lambda b: b.logprob, reverse=True)
-            beams = beams[:beam_width]
+            # P3: retencja beamów po znormalizowanym log-probie — inaczej beam
+            # wygrywający po normalizacji bywa tu ucięty po surowym skumulowanym
+            # (który faworyzuje krótkie, wcześnie ukończone beamy).
+            beams = self._prune_beams(done_beams + new_beams, beam_width)
 
         return self._finalize(beams, level, n)
 
@@ -190,15 +204,30 @@ class BeamSearch:
             return stripped[: m.start()], True
         return stripped, False
 
+    @staticmethod
+    def _norm_score(beam: _Beam) -> float:
+        """Znormalizowany log-prob beamu (skumulowany / liczba tokenów).
+
+        Jedno źródło prawdy dla pruningu (patrz P3 w suggest) i rankingu końcowego —
+        oba muszą używać tej samej miary, inaczej beam wygrywający po normalizacji
+        bywa ucięty przy pruningu po surowym skumulowanym log-probie.
+        """
+        return beam.logprob / len(beam.tokens) if beam.tokens else float("-inf")
+
+    def _prune_beams(self, beams: list[_Beam], beam_width: int) -> list[_Beam]:
+        """Zatrzymaj `beam_width` najlepszych beamów wg znormalizowanego log-probu.
+
+        Ta sama miara co ranking w _finalize (P3): retencja podczas searcha i ranking
+        końcowy MUSZĄ używać tego samego score'a, inaczej beam wygrywający po
+        normalizacji bywa ucięty tu po surowym skumulowanym log-probie.
+        """
+        return sorted(beams, key=self._norm_score, reverse=True)[:beam_width]
+
     def _finalize(self, beams: list[_Beam], level: str, n: int) -> list[Suggestion]:
         suggestions: list[Suggestion] = []
         seen: set[str] = set()
         # Ranking finalny: znormalizowany log-prob (skumulowany / liczba tokenów).
-        ranked = sorted(
-            beams,
-            key=lambda b: b.logprob / len(b.tokens) if b.tokens else float("-inf"),
-            reverse=True,
-        )
+        ranked = sorted(beams, key=self._norm_score, reverse=True)
         for beam in ranked:
             text = beam.text.strip()
             if not text:
@@ -207,8 +236,9 @@ class BeamSearch:
             if key in seen:
                 continue
             seen.add(key)
-            norm = beam.logprob / len(beam.tokens) if beam.tokens else float("-inf")
-            suggestions.append(Suggestion(text=text, score=norm, level=level))
+            suggestions.append(
+                Suggestion(text=text, score=self._norm_score(beam), level=level, complete=beam.complete)
+            )
             if len(suggestions) >= n:
                 break
         return suggestions

@@ -47,6 +47,7 @@ class EvalConfig:
     results_dir: Path = Path("results")  # katalog na raport JSON
     seed: int = 42             # seed RNG — reprodukowalne punkty cięcia
     n_gpu_layers: int = -1     # ile warstw offloadować na GPU (-1 = wszystkie)
+    headline: str = "strict"   # matcher liczony jako headline hit/rank (P4b): strict|partial
 
 
 @dataclass
@@ -64,8 +65,10 @@ class SampleResult:
     ground_truth: str
     level: str
     suggestions: list[str]  # teksty podpowiedzi w kolejności rankingu
-    hit: bool               # czy ground_truth trafił w top-K
-    rank: int  # 1-based pozycja pierwszego trafienia, 0 jeśli brak
+    hit: bool               # trafienie wg matchera headline (P4b) w top-K
+    rank: int  # 1-based pozycja pierwszego trafienia headline, 0 jeśli brak
+    rank_strict: int        # 1-based pozycja pierwszego trafienia strict (P4a), 0 jeśli brak
+    rank_partial: int       # 1-based pozycja pierwszego trafienia partial (P4a), 0 jeśli brak
     latency_ms: float       # czas wywołania suggest() w milisekundach
 
 
@@ -136,7 +139,13 @@ def build_test_cases(sentences: list[str], rng: random.Random) -> list[TestCase]
 # ---------------------------------------------------------------------------
 
 def _matches(suggestion: str, ground_truth: str) -> bool:
-    """Trafienie: jedna z fraz jest prefiksem drugiej (case-insensitive)."""
+    """Stary, dwukierunkowy matcher tekstowy (case-insensitive).
+
+    Zawiera false-positive `s.startswith(g)` (P4) — sugestia DŁUŻSZA od ground_truth
+    zaczynająca się od niej to inne słowo, a mimo to zalicza trafienie. Zostawiony
+    WYŁĄCZNIE dla diagnose.py, który analizuje historyczne raporty przechowujące same
+    teksty sugestii (bez flagi `complete`). Ścieżka live używa matcherów niżej.
+    """
     s = suggestion.lower()
     g = ground_truth.lower()
     if not s or not g:
@@ -144,10 +153,34 @@ def _matches(suggestion: str, ground_truth: str) -> bool:
     return s.startswith(g) or g.startswith(s)
 
 
-def first_hit_rank(suggestions: list[Suggestion], ground_truth: str) -> int:
-    """1-based pozycja pierwszego trafienia, 0 jeśli żadna sugestia nie pasuje."""
+def matches_partial(sug: Suggestion, ground_truth: str) -> bool:
+    """Partial match (P4): beam `complete` musi być RÓWNY ground_truth; beam
+    niekompletny (ucięty capem tokenów) zalicza się, gdy jego tekst jest prefiksem
+    ground_truth. Usuwa false-positive `s.startswith(g)` — dłuższe słowo != trafienie.
+    """
+    s = sug.text.lower()
+    g = ground_truth.lower()
+    if not s or not g:
+        return False
+    if sug.complete:
+        return s == g
+    return g.startswith(s)
+
+
+def matches_strict(sug: Suggestion, ground_truth: str) -> bool:
+    """Strict match (P4): tylko pełne, dokończone słowo równe ground_truth — bez
+    kredytu za dokończenie ucięte capem tokenów. Luka strict↔partial = dług
+    techniczny (ile trafień zjada cap `max_new_tokens`), mierzony w tokenach.
+    """
+    s = sug.text.lower()
+    g = ground_truth.lower()
+    return bool(s) and bool(g) and sug.complete and s == g
+
+
+def first_hit_rank(suggestions: list[Suggestion], ground_truth: str, matcher) -> int:
+    """1-based pozycja pierwszego trafienia wg `matcher`, 0 jeśli żadna nie pasuje."""
     for i, sug in enumerate(suggestions, start=1):
-        if _matches(sug.text, ground_truth):
+        if matcher(sug, ground_truth):
             return i
     return 0
 
@@ -163,27 +196,41 @@ def _percentile(values: list[float], pct: float) -> float:
     return ordered[lo] + (ordered[hi] - ordered[lo]) * (k - lo)
 
 
+def _rank_metrics(ranks: list[int]) -> tuple[float, float, float]:
+    """Z listy 1-based ranków (0 = brak trafienia) policz (MRR, Hit@1, Hit@K)."""
+    mrr = statistics.fmean([1.0 / r if r > 0 else 0.0 for r in ranks])
+    hit1 = statistics.fmean([1.0 if 0 < r <= 1 else 0.0 for r in ranks])
+    hitk = statistics.fmean([1.0 if r > 0 else 0.0 for r in ranks])
+    return mrr, hit1, hitk
+
+
 def compute_metrics(results: list[SampleResult], k: int) -> dict:
-    """Policz MRR@K, Hit@1, Hit@K, KSR i latencję dla zbioru wyników."""
+    """Policz MRR@K, Hit@1, Hit@K (headline + strict/partial P4a), KSR i latencję."""
     if not results:
         return {}
 
-    rr = [1.0 / r.rank if r.rank > 0 else 0.0 for r in results]  # reciprocal rank per próbka
-    hit_at_1 = [1.0 if 0 < r.rank <= 1 else 0.0 for r in results]  # trafienie na 1. pozycji
-    hit_at_k = [1.0 if r.hit else 0.0 for r in results]  # trafienie gdziekolwiek w top-K
+    # Headline (matcher wybrany przez cfg.headline) + niezależne kolumny P4a.
+    mrr, hit1, hitk = _rank_metrics([r.rank for r in results])
+    mrr_s, _hit1_s, hitk_s = _rank_metrics([r.rank_strict for r in results])
+    mrr_p, _hit1_p, hitk_p = _rank_metrics([r.rank_partial for r in results])
     latencies = [r.latency_ms for r in results]
 
-    # KSR = 1 - (kliknięcia z modelem / kliknięcia bez modelu).
-    # Bez modelu: użytkownik wpisuje całe ground_truth. Z modelem: 1 wybór, jeśli
-    # podpowiedź trafia w top-K, w przeciwnym razie pełne wpisanie.
+    # KSR = 1 - (kliknięcia z modelem / kliknięcia bez modelu), liczone matcherem
+    # headline. Bez modelu: użytkownik wpisuje całe ground_truth. Z modelem: 1 wybór,
+    # jeśli podpowiedź trafia w top-K, w przeciwnym razie pełne wpisanie.
+    # (Uproszczony KSR — pełna symulacja sesji to Mode B, patrz P6.)
     cost_without = sum(len(r.ground_truth) for r in results)
     cost_with = sum(1 if r.hit else len(r.ground_truth) for r in results)
     ksr = 1.0 - (cost_with / cost_without) if cost_without else 0.0
 
     return {
-        f"mrr_at_{k}": statistics.fmean(rr),
-        "hit_at_1": statistics.fmean(hit_at_1),
-        f"hit_at_{k}": statistics.fmean(hit_at_k),
+        f"mrr_at_{k}": mrr,
+        "hit_at_1": hit1,
+        f"hit_at_{k}": hitk,
+        f"hit_at_{k}_strict": hitk_s,
+        f"hit_at_{k}_partial": hitk_p,
+        f"mrr_at_{k}_strict": mrr_s,
+        f"mrr_at_{k}_partial": mrr_p,
         "ksr": ksr,
         "latency_mean_ms": statistics.fmean(latencies),
         "latency_p50_ms": _percentile(latencies, 0.50),
@@ -198,6 +245,15 @@ def compute_metrics(results: list[SampleResult], k: int) -> dict:
 
 def evaluate(backend: BeamSearch, cases: list[TestCase], cfg: EvalConfig) -> list[SampleResult]:
     """Przepuść każdy test case przez backend, mierząc latencję i trafienia."""
+    # P5: rozgrzewka. Pierwszy suggest() łyka kompilację shaderów Vulkan + alokację
+    # buforów GPU (cold start), co zawyża latencję pierwszych sampli i psuje mean.
+    # Odrzucamy wynik — liczy się tylko efekt uboczny (skompilowane shadery, bufory).
+    logger.info("Rozgrzewka backendu (odrzucany wynik)...")
+    backend.suggest("Test rozgrzewki ", n=cfg.n_suggestions, beam_width=cfg.beam_width)
+
+    # Matcher liczony jako headline (P4b) — pozostałe kolumny i tak raportujemy obie.
+    headline_matcher = matches_partial if cfg.headline == "partial" else matches_strict
+
     results: list[SampleResult] = []
     total = len(cases)
     for i, case in enumerate(cases, start=1):
@@ -206,7 +262,10 @@ def evaluate(backend: BeamSearch, cases: list[TestCase], cfg: EvalConfig) -> lis
         suggestions = backend.suggest(case.prefix, n=cfg.n_suggestions, beam_width=cfg.beam_width)
         latency_ms = (time.perf_counter() - t0) * 1000.0
 
-        rank = first_hit_rank(suggestions, case.ground_truth)
+        # P4a: liczymy oba ranki (strict i partial) niezależnie od headline.
+        rank_strict = first_hit_rank(suggestions, case.ground_truth, matches_strict)
+        rank_partial = first_hit_rank(suggestions, case.ground_truth, matches_partial)
+        rank = first_hit_rank(suggestions, case.ground_truth, headline_matcher)
         results.append(
             SampleResult(
                 prefix=case.prefix,
@@ -215,6 +274,8 @@ def evaluate(backend: BeamSearch, cases: list[TestCase], cfg: EvalConfig) -> lis
                 suggestions=[s.text for s in suggestions],
                 hit=rank > 0,
                 rank=rank,
+                rank_strict=rank_strict,
+                rank_partial=rank_partial,
                 latency_ms=latency_ms,
             )
         )
@@ -228,9 +289,16 @@ def evaluate(backend: BeamSearch, cases: list[TestCase], cfg: EvalConfig) -> lis
 # ---------------------------------------------------------------------------
 
 def _format_table(metrics_by_group: dict[str, dict], k: int) -> str:
-    """Sformatuj metryki (grupa -> dict) jako wyrównaną tabelę tekstową na stdout."""
-    headers = ["Grupa", f"MRR@{k}", "Hit@1", f"Hit@{k}", "KSR", "Lat.mean", "Lat.p50", "Lat.p95", "N"]
-    widths = [14, 8, 7, 8, 7, 9, 9, 9, 6]  # szerokości kolumn (znaki)
+    """Sformatuj metryki (grupa -> dict) jako wyrównaną tabelę tekstową na stdout.
+
+    Kolumny Hit@K/MRR@K rozbite na strict (s) i partial (p) — patrz P4a. Luka s↔p
+    to trafienia ucięte capem tokenów (dług techniczny).
+    """
+    headers = [
+        "Grupa", f"MRR@{k}s", f"MRR@{k}p", "Hit@1", f"Hit@{k}s", f"Hit@{k}p",
+        "KSR", "Lat.mean", "Lat.p50", "Lat.p95", "N",
+    ]
+    widths = [14, 9, 9, 7, 9, 9, 7, 9, 9, 9, 6]  # szerokości kolumn (znaki)
 
     def row(cells: list[str]) -> str:
         return "  ".join(f"{c:<{w}}" for c, w in zip(cells, widths))
@@ -243,9 +311,11 @@ def _format_table(metrics_by_group: dict[str, dict], k: int) -> str:
             row(
                 [
                     group,
-                    f"{m[f'mrr_at_{k}']:.3f}",
+                    f"{m[f'mrr_at_{k}_strict']:.3f}",
+                    f"{m[f'mrr_at_{k}_partial']:.3f}",
                     f"{m['hit_at_1']:.3f}",
-                    f"{m[f'hit_at_{k}']:.3f}",
+                    f"{m[f'hit_at_{k}_strict']:.3f}",
+                    f"{m[f'hit_at_{k}_partial']:.3f}",
                     f"{m['ksr']:.3f}",
                     f"{m['latency_mean_ms']:.1f}",
                     f"{m['latency_p50_ms']:.1f}",
@@ -269,6 +339,7 @@ def write_report(cfg: EvalConfig, overall: dict, by_level: dict, results: list[S
         "n_suggestions": cfg.n_suggestions,
         "beam_width": cfg.beam_width,
         "seed": cfg.seed,
+        "headline": cfg.headline,
         "n_samples": len(results),
         "metrics": overall,
         "metrics_by_level": by_level,
@@ -297,6 +368,10 @@ def parse_args(argv: list[str] | None = None) -> EvalConfig:
     parser.add_argument(
         "--n-gpu-layers", type=int, default=-1, help="Warstwy na GPU (-1 = cały model), domyślnie -1"
     )
+    parser.add_argument(
+        "--headline", choices=("strict", "partial"), default="strict",
+        help="Matcher liczony jako headline hit/rank/KSR (P4b), domyślnie strict",
+    )
     args = parser.parse_args(argv)
     return EvalConfig(
         dataset=args.dataset,
@@ -306,6 +381,7 @@ def parse_args(argv: list[str] | None = None) -> EvalConfig:
         results_dir=args.results_dir,
         seed=args.seed,
         n_gpu_layers=args.n_gpu_layers,
+        headline=args.headline,
     )
 
 
@@ -342,7 +418,9 @@ def main(argv: list[str] | None = None) -> None:
     }
 
     table = _format_table({"overall": overall, **by_level}, cfg.n_suggestions)
-    print("\n=== Wyniki ewaluacji ===\n")
+    print("\n=== Wyniki ewaluacji ===")
+    print(f"(headline = {cfg.headline}; KSR i pole 'rank' liczone tym matcherem. "
+          f"Kolumny s=strict, p=partial — P4a.)\n")
     print(table)
 
     out_path = write_report(cfg, overall, by_level, results)

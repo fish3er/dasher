@@ -86,6 +86,32 @@ Uruchomienie eval:
   i literatury. Wszystkie P1–P9 potwierdzone w źródłach. Korekty planu (rozszerzony
   Phase 0 pkt 1, doprecyzowania P2–P6, nowy krok „Limit KS”, poprawione szacunki
   i rodowód metryk Mode A/B, przebudowana kolejność wykonania) — patrz sekcje niżej.
+- **2026-07-25** — Phase 0 + naprawy P5/P2/P3/P4a. **Środowisko robocze bez
+  llama-cpp/numpy (Python 3.13) — modelu NIE dało się uruchomić, więc DELTY METRYK
+  są NIEZWERYFIKOWANE; trzeba odpalić eval na maszynie z RX 6800 XT.**
+  - **Phase 0** — powstał `diagnose.py` (czyta najnowszy `results/eval_*.json`;
+    pkt 1–4 liczą się z JSON-a, pkt 5 + atrybucja 1a/b/c za `--gguf`). Wynik na
+    `eval_..._205212.json` (40 case'ów): **0/40 sampli zwróciło pełne K=5**;
+    mid_word **4/20 (20%) zwróciło 0 sugestii** (sygnatura P2). **Wszystkie 14
+    trafień to `exact`** — 0 `truncated`, 0 `wrong_word`, więc false-positive
+    matchera (P4) NIE zawyżył tego konkretnego runu (Hit@5 bez wrong_word = raw
+    = 0.350). Trafienia skośne ku długim gt (9/14 to 5+ znaków).
+  - **P5** — warmup w `eval.evaluate` (odrzucany `suggest`) przed pętlą.
+  - **P2** — mid_word beamy z pustym dokończeniem (boundary@0: spacja LUB
+    interpunkcja) pomijane w `suggest`, backfill z puli kandydatów. Scope: tylko
+    (a); word_boundary puste beamy NIE ruszane (bare „▁” bywa realnym początkiem
+    słowa). Limit: gdy litera jest poza top-`beam_width`, backfill nie ma z czego
+    dobierać (patrz test `test_all_boundary_topk_...`).
+  - **P3** — retencja beamów po znormalizowanym log-probie (`_prune_beams`),
+    spójnie z rankingiem w `_finalize` (jedno źródło: `_norm_score`).
+  - **P4a** — `Suggestion` niesie flagę `complete`; `eval` liczy i raportuje
+    osobno **Hit@K/MRR@K strict i partial**; usunięty false-positive matchera
+    (stary `_matches` został tylko dla `diagnose.py` na historycznych raportach).
+  - **P4b** — flaga `--headline {strict,partial}` (domyślnie `strict`); headline
+    steruje polem `rank`/`hit`/KSR, ale obie kolumny i tak są raportowane.
+  - **Testy** — `test_beam_search.py` (18 testów, atrapa znakowa bez modelu/numpy)
+    pinuje P2/P3/P4a. Zweryfikowano, że test P2 rozróżnia fixed (`['ie','ix']`)
+    od pre-fix (`['ie']`). `main.py`/`model.py` — nietknięte.
 
 #### Wyniki (test_phrases_pl.txt, 40 case'ów, 20/poziom — mała próbka!)
 | Config        | MRR@5 | Hit@5 | wb Hit@5 | lat mean | lat p50 |
@@ -100,18 +126,28 @@ w tej tabeli traktować jako NIEZAUFANE do czasu napraw P2–P5** (matcher/puste
 beamy/warmup — patrz review niżej).
 
 ### Stan obecny
-- Branch `gemma4-beamserach`. **ŻADNA naprawa z P1–P9 nie została jeszcze
-  wprowadzona do kodu** (zweryfikowane 2026-07-20: matcher dwukierunkowy w
-  `eval.py:_matches`, puste `complete` beamy w `_extract`, brak warmupu,
-  KSR per-case, `_kv_clear` w każdym `_decode_batch`, `main.py` importuje `model.py`).
-- **`diagnose.py` NIE istnieje.** Katalog `results/` nie jest w repo — najnowszy
-  `eval_*.json` trzeba wygenerować lub znaleźć lokalnie.
-- Liczby w tabeli wyników są NIEZAUFANE do czasu napraw P2–P5.
+- Branch `gemma4-beamserach`. Wprowadzone do kodu (2026-07-25): **P5, P2, P3, P4a,
+  P4b** (`beam_search.py` + `eval.py`), `diagnose.py`, `test_beam_search.py`.
+  Nietknięte: **P1** (KV cache), **P6** (Mode B / KSR sesyjny), **P8** (log-softmax),
+  **P9** (`main.py` wciąż importuje `model.py`), **Mode A**, **Limit KS**,
+  porównanie bw 5 vs 10, re-run 12 vs 6.
+- **Delty metryk NIEZWERYFIKOWANE** — środowisko robocze bez llama-cpp/numpy, model
+  się nie ładuje. Zmiany kodu potwierdzone testami jednostkowymi (atrapa), nie
+  re-runem eval. Liczby w tabeli wyników wyżej dalej NIEZAUFANE.
+- `diagnose.py` **istnieje** i działa na JSON-ach z `results/`.
 
 ### Następny krok
-Napisać `diagnose.py` wg specyfikacji Phase 0 (z rozszerzonym pkt 1 — patrz niżej),
-uruchomić na świeżym `results/eval_*.json`, pokazać liczby, **STOP** — zero zmian
-w `beam_search.py`/`eval.py`.
+1. **Na maszynie z RX 6800 XT**: `python eval.py --dataset test_phrases_pl.txt
+   --gguf models/google_gemma-4-E4B-it-Q4_K_M.gguf` (świeży raport z kolumnami
+   strict/partial + warmupem). Porównać z `results/eval_..._205212.json`:
+   oczekiwane — mid_word puste 4/20 → mniej; więcej wypełnionych slotów (P2);
+   ruch MRR (P3); rozjazd Hit@5 strict↔partial (P4a). **Raport delty; jeśli któraś
+   naprawa nie rusza metryki — powiedzieć to.**
+2. Uruchomić `python diagnose.py --gguf models/...gguf` — atrybucja 1a/1b/1c
+   (puste beamy / dedup) + profil `cProfile` (udział `_topk_logprobs` vs
+   `llama_decode`) → decyzja o P8.
+3. Dalej wg „Kolejność wykonania”: Limit KS → re-run 12 vs 6 → Mode A → bw 5 vs 10
+   (McNemar + bootstrap) → P8 → P1 → Mode B → P9.
 
 ## Code review — 2026-07-11
 
