@@ -1,16 +1,18 @@
-"""Testy konstrukcji test case'ów w eval.py — pary faktycznie kolejnych zdań.
+"""Testy konstrukcji test case'ów w eval.py — pary zdań o TYM SAMYM.
 
 Bez modelu i bez GGUF: konstrukcja case'ów jest czysto tekstowa, a przejście przez
 `evaluate()` weryfikowane jest atrapą backendu (`_RecordingBackend`), która zapisuje
 prefiksy trafiające do `suggest()` i zwraca ustaloną listę podpowiedzi.
 
 Pinowane niezmienniki:
+  * okno NIGDY nie przekracza granicy bloku tematycznego (pustej linii) — to jedyne
+    źródło informacji, że zdania mówią o tym samym; bez tego kontekst jest szumem,
+  * krótkie zdanie między dwoma długimi ROZBIJA parę (zdania nie są sąsiednie),
   * prefix word_boundary kończy się DOKŁADNIE jedną spacją (nigdy podwójną),
   * prefix mid_word nie kończy się spacją,
   * każdy prefix zaczyna się pełnym kontekstem (S1...), a cięcie leży w targecie (S2),
   * ground_truth pochodzi wyłącznie z targetu,
-  * krótkie zdanie między dwoma długimi ROZBIJA parę (zdania nie są sąsiednie),
-  * context_sentences=N wymaga N kolejnych zdań kontekstu przed targetem.
+  * context_sentences=N wymaga N kolejnych zdań kontekstu w tym samym bloku.
 
 Uruchomienie: python -m unittest test_eval_cases -v
 """
@@ -31,26 +33,40 @@ from eval import (
     evaluate,
     iter_context_windows,
     make_test_cases,
+    parse_blocks,
     parse_sentences,
 )
 
 # Zdania fixture'owe. Długie przechodzą próg MIN_SENTENCE_LEN, krótkie nie —
 # sanity check w setUpModule pilnuje, żeby fixture nie zgnił po zmianie progu.
+# X* to osobny temat: służy do sprawdzania, że granica bloku nie przecieka.
 L1 = "Pierwsze długie zdanie o kotach i psach"
 L2 = "Drugie długie zdanie o rybach i wodzie"
 L3 = "Trzecie długie zdanie o ptakach i niebie"
+X1 = "Zupełnie inny temat o pociągach i torach"
+X2 = "Dalszy ciąg tematu o pociągach i peronach"
 SHORT = "Ok"
 
 
 def setUpModule() -> None:
-    for s in (L1, L2, L3):
+    for s in (L1, L2, L3, X1, X2):
         assert len(s) >= MIN_SENTENCE_LEN, f"fixture za krótki: {s!r}"
     assert len(SHORT) < MIN_SENTENCE_LEN, "fixture SHORT musi być poniżej progu"
 
 
 def _text(*sentences: str) -> str:
-    """Złóż surowy tekst korpusu ze zdań (kropka + spacja jak w prawdziwym pliku)."""
+    """Złóż JEDEN blok korpusu ze zdań (kropka + spacja jak w prawdziwym pliku)."""
     return "".join(s + ". " for s in sentences)
+
+
+def _corpus(*blocks: str) -> str:
+    """Złóż korpus z bloków tematycznych — rozdzielonych pustą linią, jak w pliku."""
+    return "\n\n".join(blocks)
+
+
+def _windows_from(*blocks: str, context_sentences: int = 1):
+    """Skrót: tekst bloków → `parse_blocks` → okna (kontekst, target)."""
+    return iter_context_windows(parse_blocks(_corpus(*blocks)), context_sentences)
 
 
 class _StubRng:
@@ -87,40 +103,62 @@ class _RecordingBackend:
 # Sąsiedztwo zdań
 # ---------------------------------------------------------------------------
 
+class TestTopicBlocks(unittest.TestCase):
+    """Granica bloku (pusta linia) jest twarda — okno jej nie przekracza."""
+
+    def test_parse_blocks_splits_on_blank_line(self):
+        self.assertEqual(parse_blocks(_corpus(_text(L1, L2), _text(X1))), [[L1, L2], [X1]])
+
+    def test_parse_blocks_ignores_extra_blank_lines(self):
+        # Wielokrotne puste linie i wcięcia to jedna granica, nie pusty blok.
+        text = _text(L1, L2) + "\n\n\n   \n\n" + _text(X1)
+        self.assertEqual(parse_blocks(text), [[L1, L2], [X1]])
+
+    def test_last_of_block_does_not_pair_with_first_of_next(self):
+        # SEDNO: L2 i X1 sąsiadują w pliku, ale mówią o czym innym → nie wolno ich sparować.
+        windows = _windows_from(_text(L1, L2), _text(X1, X2))
+        self.assertEqual(windows, [([L1], L2), ([X1], X2)])
+        self.assertNotIn(([L2], X1), windows)
+
+    def test_single_sentence_block_yields_no_window(self):
+        # Zdanie bez kontekstu w swoim bloku nie ma z czym tworzyć pary.
+        self.assertEqual(_windows_from(_text(L1), _text(X1)), [])
+
+    def test_context_sentences_two_does_not_borrow_from_previous_block(self):
+        # Blok ma tylko 2 zdania, więc dla N=2 brakuje kontekstu — dobranie go
+        # z poprzedniego bloku byłoby dokładnie tym błędem, którego pilnujemy.
+        self.assertEqual(_windows_from(_text(L1, L2), _text(X1, X2), context_sentences=2), [])
+
+
 class TestSentenceAdjacency(unittest.TestCase):
-    """Okno powstaje tylko dla zdań stojących BEZPOŚREDNIO po sobie w źródle."""
+    """Wewnątrz bloku okno wymaga zdań stojących BEZPOŚREDNIO po sobie."""
 
     def test_parse_keeps_short_sentences_in_stream(self):
         # Krótkie zdania MUSZĄ zostać w strumieniu — inaczej sąsiedztwo byłoby fałszywe.
         self.assertEqual(parse_sentences(_text(L1, SHORT, L2)), [L1, SHORT, L2])
 
     def test_adjacent_long_sentences_form_pair(self):
-        windows = iter_context_windows(parse_sentences(_text(L1, L2)), 1)
-        self.assertEqual(windows, [([L1], L2)])
+        self.assertEqual(_windows_from(_text(L1, L2)), [([L1], L2)])
 
     def test_short_sentence_between_long_ones_breaks_pair(self):
         # L1 i L2 nie sąsiadują (dzieli je odrzucone SHORT) → nie są powiązane → brak pary.
-        windows = iter_context_windows(parse_sentences(_text(L1, SHORT, L2)), 1)
-        self.assertEqual(windows, [])
+        self.assertEqual(_windows_from(_text(L1, SHORT, L2)), [])
 
     def test_short_sentence_only_breaks_across_itself(self):
         # Po SHORT ciągłość zaczyna się od nowa: para (L2, L3) jest poprawna.
-        windows = iter_context_windows(parse_sentences(_text(L1, SHORT, L2, L3)), 1)
-        self.assertEqual(windows, [([L2], L3)])
+        self.assertEqual(_windows_from(_text(L1, SHORT, L2, L3)), [([L2], L3)])
 
     def test_windows_slide_by_one_sentence(self):
-        windows = iter_context_windows(parse_sentences(_text(L1, L2, L3)), 1)
-        self.assertEqual(windows, [([L1], L2), ([L2], L3)])
+        self.assertEqual(_windows_from(_text(L1, L2, L3)), [([L1], L2), ([L2], L3)])
 
     def test_context_sentences_two_needs_two_consecutive(self):
-        windows = iter_context_windows(parse_sentences(_text(L1, L2, L3)), 2)
+        windows = _windows_from(_text(L1, L2, L3), context_sentences=2)
         self.assertEqual(windows, [([L1, L2], L3)])
         for context, _target in windows:
             self.assertEqual(len(context), 2)
 
     def test_context_sentences_two_broken_by_short(self):
-        windows = iter_context_windows(parse_sentences(_text(L1, SHORT, L2, L3)), 2)
-        self.assertEqual(windows, [])
+        self.assertEqual(_windows_from(_text(L1, SHORT, L2, L3), context_sentences=2), [])
 
     def test_context_text_ends_with_single_space(self):
         ctx = _format_context([L1, L2])
@@ -167,7 +205,7 @@ class TestPrefixInvariants(_PrefixInvariantsMixin, unittest.TestCase):
     """Prefiksy: kontekst z przodu, cięcie w targecie, spacje wg poziomu."""
 
     def _windows(self, context_sentences: int = 1):
-        return iter_context_windows(parse_sentences(_text(L1, L2, L3)), context_sentences)
+        return _windows_from(_text(L1, L2, L3), context_sentences=context_sentences)
 
     def test_invariants_across_rng_choices(self):
         # index=0 wymusza PIERWSZE słowo targetu (head pusty → ryzyko podwójnej spacji),
@@ -200,13 +238,33 @@ class TestPrefixInvariants(_PrefixInvariantsMixin, unittest.TestCase):
 class TestRealCorpusInvariants(_PrefixInvariantsMixin, unittest.TestCase):
     """Te same niezmienniki na prawdziwym korpusie projektu (jeśli obecny)."""
 
-    CORPUS = Path(__file__).with_name("test_phrases_pl.txt")
+    CORPUS = Path(__file__).with_name("test_pairs_pl.txt")
 
-    @unittest.skipUnless(CORPUS.is_file(), "brak test_phrases_pl.txt")
-    def test_corpus_cases_hold_invariants(self):
-        sentences = parse_sentences(self.CORPUS.read_text(encoding="utf-8"))
-        windows = iter_context_windows(sentences, 1)
+    def setUp(self) -> None:
+        if not self.CORPUS.is_file():
+            self.skipTest(f"brak {self.CORPUS.name}")
+        self.blocks = parse_blocks(self.CORPUS.read_text(encoding="utf-8"))
+
+    def test_corpus_is_split_into_topic_blocks(self):
+        # Korpus luźnych zdań (jeden blok na wszystko) NIE nadaje się do ewaluacji
+        # kontekstowej — pilnujemy, żeby plik nie wrócił do tamtego formatu.
+        self.assertGreater(len(self.blocks), 1, "korpus musi mieć bloki rozdzielone pustą linią")
+        for block in self.blocks:
+            self.assertGreaterEqual(len(block), 2, f"blok bez kontekstu: {block!r}")
+
+    def test_corpus_windows_stay_within_one_block(self):
+        windows = iter_context_windows(self.blocks, 1)
         self.assertGreater(len(windows), 0, "korpus powinien dać co najmniej jedną parę")
+        # Kontekst i target muszą pochodzić z jednego bloku, i to sąsiadować w nim.
+        for context, target in windows:
+            with self.subTest(target=target[:30]):
+                owner = [b for b in self.blocks if target in b and all(c in b for c in context)]
+                self.assertTrue(owner, f"okno rozjechało się między blokami: {context} → {target}")
+                block = owner[0]
+                self.assertEqual(block[block.index(context[-1]) + 1], target)
+
+    def test_corpus_cases_hold_invariants(self):
+        windows = iter_context_windows(self.blocks, 1)
         rng = random.Random(42)
         n_cases = 0
         for context, target in windows:
@@ -225,7 +283,7 @@ class TestEvaluateWithStubBackend(unittest.TestCase):
     """Prefiksy docierają do suggest() nietknięte — evaluate() ich nie modyfikuje."""
 
     def test_prefixes_reach_backend_unchanged(self):
-        windows = iter_context_windows(parse_sentences(_text(L1, L2, L3)), 1)
+        windows = _windows_from(_text(L1, L2, L3))
         # Ten sam RNG i ta sama kolejność co w build_test_cases — zachowujemy przypisanie
         # case'a do okna, żeby dało się sprawdzić kontekst konkretnego prefiksu.
         rng = random.Random(42)

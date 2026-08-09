@@ -1,16 +1,22 @@
 """Ewaluacja beam searcha (Gemma 4 GGUF) na polskim korpusie tekstowym.
 
 Użycie:
-    python eval.py --dataset test.txt --gguf gemma4.gguf \
+    python eval.py --dataset test_pairs_pl.txt --gguf gemma4.gguf \
         [--n-suggestions 5] [--beam-width 10] [--results-dir results] [--seed 42] \
         [--context-sentences 1]
 
-Jednostką testową jest PARA (a ogólniej okno) faktycznie kolejnych zdań korpusu:
+Jednostką testową jest PARA (a ogólniej okno) zdań MÓWIĄCYCH O TYM SAMYM:
 N zdań kontekstu (S1, ...) + zdanie-target (S2). Predykcje są WYŁĄCZNIE w targecie —
 kontekst wchodzi w całości do prefiksu (każde zdanie zakończone ". "), a ground_truth
-pochodzi zawsze z targetu. Okno powstaje tylko dla zdań stojących bezpośrednio po
-sobie w źródle, z których każde ma >= MIN_SENTENCE_LEN znaków; krótkie zdanie
-pomiędzy dwoma długimi przerywa sąsiedztwo (tamte dwa nie są powiązane).
+pochodzi zawsze z targetu.
+
+Powiązanie tematyczne bierze się z BLOKÓW korpusu (fragmenty rozdzielone pustą linią),
+nie z sąsiedztwa w pliku. Samo sąsiedztwo NIE wystarcza: w korpusie luźnych zdań dwie
+kolejne linie mówią o zupełnie różnych sprawach, więc taki "kontekst" jest szumem i
+ewaluacja mierzy odporność modelu na mylący prefiks zamiast korzyści z kontekstu.
+Okno nigdy nie przekracza granicy bloku. Wewnątrz bloku obowiązuje dodatkowo próg
+MIN_SENTENCE_LEN, a zdanie poniżej progu przerywa ciągłość (zdania po jego obu
+stronach nie są parowane).
 
 Z każdego okna tworzone są dwa test case'y (mid-word + word-boundary), dla których
 liczone są metryki: MRR@K, Hit@1, Hit@K, KSR oraz latencja.
@@ -34,6 +40,7 @@ from beam_search import LEVEL_MID_WORD, LEVEL_WORD_BOUNDARY, BeamSearch, Suggest
 logger = logging.getLogger("eval")
 
 _SENTENCE_SPLIT_RE = re.compile(r"[.!?]+")  # granice zdań (kropka/wykrzyknik/pytajnik)
+_BLOCK_SPLIT_RE = re.compile(r"\n\s*\n")  # pusta linia = granica bloku tematycznego
 _WORD_RE = re.compile(r"\S+")  # słowo = ciąg znaków niebiałych (z przylegającą interpunkcją)
 _STRIP_PUNCT_RE = re.compile(r"^\W+|\W+$", re.UNICODE)  # obcięcie interpunkcji z brzegów słowa
 
@@ -90,9 +97,9 @@ def parse_sentences(text: str) -> list[str]:
     """Podziel tekst po `.!?` na SUROWY strumień zdań, w kolejności występowania.
 
     Zdania krótsze niż MIN_SENTENCE_LEN NIE są tu odrzucane — muszą zostać
-    w strumieniu, bo przerywają sąsiedztwo. Odrzucenie ich już na tym etapie
-    skleiłoby ze sobą zdania, między którymi w źródle coś stało, i dałoby "kontekst",
-    który nie poprzedza targetu. Filtr długości nakłada dopiero `iter_context_windows`.
+    w strumieniu, bo przerywają ciągłość. Odrzucenie ich już na tym etapie skleiłoby
+    ze sobą zdania, między którymi w bloku coś stało, i dałoby "kontekst", który
+    nie poprzedza targetu. Filtr długości nakłada dopiero `iter_context_windows`.
     Pomijamy wyłącznie fragmenty puste po normalizacji — to artefakt splitu, nie zdanie.
     """
     sentences = []
@@ -103,28 +110,50 @@ def parse_sentences(text: str) -> list[str]:
     return sentences
 
 
+def parse_blocks(text: str) -> list[list[str]]:
+    """Podziel korpus na BLOKI TEMATYCZNE (rozdzielone pustą linią), każdy na zdania.
+
+    Blok to jedyne źródło informacji o tym, że zdania mówią o tym samym — z samego
+    pliku nie da się tego wywnioskować. Dlatego granica bloku jest twarda: okno nigdy
+    jej nie przekracza. Blok może mieć więcej niż dwa zdania (wtedy przy
+    `context_sentences=1` daje kilka okien) i może zawierać zdania poniżej progu
+    długości — te odsiewa dopiero `iter_context_windows`.
+    """
+    blocks = []
+    for raw_block in _BLOCK_SPLIT_RE.split(text):
+        sentences = parse_sentences(raw_block)
+        if sentences:
+            blocks.append(sentences)
+    return blocks
+
+
 def iter_context_windows(
-    sentences: list[str], context_sentences: int
+    blocks: list[list[str]], context_sentences: int
 ) -> list[tuple[list[str], str]]:
-    """Zbuduj okna (kontekst, target) z surowego strumienia zdań.
+    """Zbuduj okna (kontekst, target) — wyłącznie WEWNĄTRZ bloków tematycznych.
 
     Okno powstaje TYLKO gdy `context_sentences + 1` zdań stoi bezpośrednio po sobie
-    w źródle i KAŻDE z nich ma >= MIN_SENTENCE_LEN znaków. Zdanie poniżej progu zeruje
-    bufor: zdania po jego obu stronach nie sąsiadują, więc nie są powiązane i nie wolno
-    ich sparować. Okna są przesuwane o jedno zdanie — to samo zdanie bywa targetem
-    jednego okna i kontekstem następnego.
+    w TYM SAMYM bloku i KAŻDE z nich ma >= MIN_SENTENCE_LEN znaków. Zdanie poniżej
+    progu zeruje bufor: zdania po jego obu stronach nie sąsiadują, więc nie wolno ich
+    sparować. Bufor zeruje się też na granicy bloku — inaczej ostatnie zdanie jednego
+    tematu zostałoby kontekstem dla pierwszego zdania następnego, czyli dokładnie tym
+    fałszywym powiązaniem, którego blokowy podział ma zapobiegać.
+
+    Okna przesuwają się o jedno zdanie, więc w bloku dłuższym niż `context_sentences+1`
+    to samo zdanie bywa targetem jednego okna i kontekstem następnego.
     """
     windows: list[tuple[list[str], str]] = []
-    window: list[str] = []  # bufor kolejnych zdań przechodzących próg długości
-    for sentence in sentences:
-        if len(sentence) < MIN_SENTENCE_LEN:
-            window.clear()  # przerwana ciągłość — zaczynamy zbierać od nowa
-            continue
-        window.append(sentence)
-        if len(window) > context_sentences + 1:
-            window.pop(0)  # przesuwamy okno, trzymamy tylko N kontekstu + target
-        if len(window) == context_sentences + 1:
-            windows.append((window[:-1], window[-1]))
+    for sentences in blocks:
+        window: list[str] = []  # bufor kolejnych zdań przechodzących próg długości
+        for sentence in sentences:
+            if len(sentence) < MIN_SENTENCE_LEN:
+                window.clear()  # przerwana ciągłość — zaczynamy zbierać od nowa
+                continue
+            window.append(sentence)
+            if len(window) > context_sentences + 1:
+                window.pop(0)  # przesuwamy okno, trzymamy tylko N kontekstu + target
+            if len(window) == context_sentences + 1:
+                windows.append((window[:-1], window[-1]))
     return windows
 
 
@@ -420,7 +449,10 @@ def parse_args(argv: list[str] | None = None) -> EvalConfig:
     parser = argparse.ArgumentParser(
         description="Ewaluacja beam searcha (Gemma 4 GGUF) na polskim korpusie."
     )
-    parser.add_argument("--dataset", type=Path, required=True, help="Plik .txt z polskim tekstem")
+    parser.add_argument(
+        "--dataset", type=Path, required=True,
+        help="Plik .txt z polskim tekstem; bloki zdań o tym samym rozdzielone pustą linią",
+    )
     parser.add_argument("--gguf", type=Path, required=True, help="Ścieżka do modelu .gguf (Gemma 4)")
     parser.add_argument("--n-suggestions", type=int, default=5, help="Liczba podpowiedzi (K), domyślnie 5")
     parser.add_argument("--beam-width", type=int, default=5, help="Szerokość beam searcha, domyślnie 5")
@@ -435,7 +467,8 @@ def parse_args(argv: list[str] | None = None) -> EvalConfig:
     )
     parser.add_argument(
         "--context-sentences", type=int, default=1,
-        help="Ile poprzedzających (kolejnych) zdań wchodzi do prefiksu przed targetem, domyślnie 1",
+        help="Ile zdań z tego samego bloku wchodzi do prefiksu przed targetem, domyślnie 1 "
+             "(wartość N wymaga bloków o co najmniej N+1 zdaniach nad progiem długości)",
     )
     args = parser.parse_args(argv)
     return EvalConfig(
@@ -469,19 +502,33 @@ def main(argv: list[str] | None = None) -> None:
 
     rng = random.Random(cfg.seed)  # deterministyczny RNG dla powtarzalnych splitów
     text = cfg.dataset.read_text(encoding="utf-8")
-    sentences = parse_sentences(text)
-    logger.info("Wczytano %d zdań z %s", len(sentences), cfg.dataset)
+    blocks = parse_blocks(text)
+    logger.info(
+        "Wczytano %d bloków tematycznych (%d zdań) z %s",
+        len(blocks), sum(len(b) for b in blocks), cfg.dataset,
+    )
 
-    # Okna kolejnych zdań: N kontekstu + target. Predykcje wyłącznie w targecie.
-    windows = iter_context_windows(sentences, cfg.context_sentences)
+    # Korpus bez pustych linii to jeden wielki blok: kod sparuje wtedy zdania, które
+    # nie mają ze sobą nic wspólnego, i cicho zmierzy odporność na mylący kontekst.
+    # Nie jest to błąd składniowy, więc tylko ostrzegamy — ale głośno.
+    if len(blocks) == 1 and len(blocks[0]) > 2:
+        logger.warning(
+            "Korpus %s nie ma pustych linii — całość potraktowano jako JEDEN blok tematyczny "
+            "(%d zdań). Kontekst będzie parowany ze zdaniami o innym temacie, co zaniża wynik. "
+            "Rozdziel powiązane zdania pustą linią.",
+            cfg.dataset, len(blocks[0]),
+        )
+
+    # Okna wewnątrz bloków: N zdań kontekstu + target. Predykcje wyłącznie w targecie.
+    windows = iter_context_windows(blocks, cfg.context_sentences)
     logger.info(
         "Zbudowano %d okien (%d zdań kontekstu + target)", len(windows), cfg.context_sentences
     )
     if not windows:
         raise SystemExit(
-            f"Brak okien kontekstowych — korpus nie zawiera {cfg.context_sentences + 1} "
-            f"kolejnych zdań o długości >= {MIN_SENTENCE_LEN} znaków. "
-            "Zmniejsz --context-sentences albo użyj korpusu z dłuższymi zdaniami."
+            f"Brak okien kontekstowych — żaden blok korpusu nie zawiera "
+            f"{cfg.context_sentences + 1} kolejnych zdań o długości >= {MIN_SENTENCE_LEN} "
+            "znaków. Zmniejsz --context-sentences albo dopisz zdania do bloków."
         )
 
     cases = build_test_cases(windows, rng)
