@@ -2,10 +2,18 @@
 
 Użycie:
     python eval.py --dataset test.txt --gguf gemma4.gguf \
-        [--n-suggestions 5] [--beam-width 10] [--results-dir results] [--seed 42]
+        [--n-suggestions 5] [--beam-width 10] [--results-dir results] [--seed 42] \
+        [--context-sentences 1]
 
-Z każdego zdania korpusu tworzone są dwa test case'y (mid-word + word-boundary),
-dla których liczone są metryki: MRR@K, Hit@1, Hit@K, KSR oraz latencja.
+Jednostką testową jest PARA (a ogólniej okno) faktycznie kolejnych zdań korpusu:
+N zdań kontekstu (S1, ...) + zdanie-target (S2). Predykcje są WYŁĄCZNIE w targecie —
+kontekst wchodzi w całości do prefiksu (każde zdanie zakończone ". "), a ground_truth
+pochodzi zawsze z targetu. Okno powstaje tylko dla zdań stojących bezpośrednio po
+sobie w źródle, z których każde ma >= MIN_SENTENCE_LEN znaków; krótkie zdanie
+pomiędzy dwoma długimi przerywa sąsiedztwo (tamte dwa nie są powiązane).
+
+Z każdego okna tworzone są dwa test case'y (mid-word + word-boundary), dla których
+liczone są metryki: MRR@K, Hit@1, Hit@K, KSR oraz latencja.
 """
 
 from __future__ import annotations
@@ -29,8 +37,9 @@ _SENTENCE_SPLIT_RE = re.compile(r"[.!?]+")  # granice zdań (kropka/wykrzyknik/p
 _WORD_RE = re.compile(r"\S+")  # słowo = ciąg znaków niebiałych (z przylegającą interpunkcją)
 _STRIP_PUNCT_RE = re.compile(r"^\W+|\W+$", re.UNICODE)  # obcięcie interpunkcji z brzegów słowa
 
-MIN_SENTENCE_LEN = 20  # min. długość zdania (znaki), krótsze pomijamy jako mało wartościowe
+MIN_SENTENCE_LEN = 20  # min. długość zdania (znaki), krótsze nie wchodzą do okna
 MIN_WORD_LEN = 3  # min. długość słowa kwalifikującego się do splitu mid-word
+_CONTEXT_SEP = ". "  # zakończenie zdania kontekstowego doklejanego do prefiksu
 
 
 # ---------------------------------------------------------------------------
@@ -48,6 +57,7 @@ class EvalConfig:
     seed: int = 42             # seed RNG — reprodukowalne punkty cięcia
     n_gpu_layers: int = -1     # ile warstw offloadować na GPU (-1 = wszystkie)
     headline: str = "strict"   # matcher liczony jako headline hit/rank (P4b): strict|partial
+    context_sentences: int = 1  # ile poprzedzających zdań wchodzi do prefiksu przed targetem
 
 
 @dataclass
@@ -77,27 +87,75 @@ class SampleResult:
 # ---------------------------------------------------------------------------
 
 def parse_sentences(text: str) -> list[str]:
-    """Podziel tekst po `.!?` i odrzuć zdania krótsze niż MIN_SENTENCE_LEN znaków."""
+    """Podziel tekst po `.!?` na SUROWY strumień zdań, w kolejności występowania.
+
+    Zdania krótsze niż MIN_SENTENCE_LEN NIE są tu odrzucane — muszą zostać
+    w strumieniu, bo przerywają sąsiedztwo. Odrzucenie ich już na tym etapie
+    skleiłoby ze sobą zdania, między którymi w źródle coś stało, i dałoby "kontekst",
+    który nie poprzedza targetu. Filtr długości nakłada dopiero `iter_context_windows`.
+    Pomijamy wyłącznie fragmenty puste po normalizacji — to artefakt splitu, nie zdanie.
+    """
     sentences = []
     for raw in _SENTENCE_SPLIT_RE.split(text):
         s = " ".join(raw.split())  # normalizacja białych znaków
-        if len(s) >= MIN_SENTENCE_LEN:
+        if s:
             sentences.append(s)
     return sentences
+
+
+def iter_context_windows(
+    sentences: list[str], context_sentences: int
+) -> list[tuple[list[str], str]]:
+    """Zbuduj okna (kontekst, target) z surowego strumienia zdań.
+
+    Okno powstaje TYLKO gdy `context_sentences + 1` zdań stoi bezpośrednio po sobie
+    w źródle i KAŻDE z nich ma >= MIN_SENTENCE_LEN znaków. Zdanie poniżej progu zeruje
+    bufor: zdania po jego obu stronach nie sąsiadują, więc nie są powiązane i nie wolno
+    ich sparować. Okna są przesuwane o jedno zdanie — to samo zdanie bywa targetem
+    jednego okna i kontekstem następnego.
+    """
+    windows: list[tuple[list[str], str]] = []
+    window: list[str] = []  # bufor kolejnych zdań przechodzących próg długości
+    for sentence in sentences:
+        if len(sentence) < MIN_SENTENCE_LEN:
+            window.clear()  # przerwana ciągłość — zaczynamy zbierać od nowa
+            continue
+        window.append(sentence)
+        if len(window) > context_sentences + 1:
+            window.pop(0)  # przesuwamy okno, trzymamy tylko N kontekstu + target
+        if len(window) == context_sentences + 1:
+            windows.append((window[:-1], window[-1]))
+    return windows
 
 
 def _clean_word(word: str) -> str:
     return _STRIP_PUNCT_RE.sub("", word)
 
 
-def make_test_cases(sentence: str, rng: random.Random) -> list[TestCase]:
-    """Z jednego zdania zbuduj test case mid-word oraz word-boundary."""
+def _format_context(context: list[str]) -> str:
+    """Skleja zdania kontekstowe w tekst doklejany PRZED targetem.
+
+    Każde zdanie kończone `". "` (split zjadł oryginalną interpunkcję końcową), więc
+    całość kończy się dokładnie jedną spacją. Dzięki temu word_boundary celujący
+    w PIERWSZE słowo targetu ma poprawny prefix (jedna spacja, nie dwie), a doklejenie
+    dalszej części targetu nie skleja się z ostatnim słowem kontekstu.
+    """
+    return "".join(sentence + _CONTEXT_SEP for sentence in context)
+
+
+def make_test_cases(context: list[str], target: str, rng: random.Random) -> list[TestCase]:
+    """Z okna (kontekst, target) zbuduj test case mid-word oraz word-boundary.
+
+    Predykcja jest WYŁĄCZNIE w `target`: punkt cięcia leży w targecie, a ground_truth
+    pochodzi wyłącznie z targetu. `context` trafia tylko do prefiksu.
+    """
     cases: list[TestCase] = []
-    words = list(_WORD_RE.finditer(sentence))
+    words = list(_WORD_RE.finditer(target))
     if not words:
         return cases
+    context_text = _format_context(context)  # kończy się ". " (a więc spacją)
 
-    # --- mid_word: losowy split w środku losowego słowa (min MIN_WORD_LEN znaków) ---
+    # --- mid_word: losowy split w środku losowego słowa TARGETU (min MIN_WORD_LEN znaków) ---
     # Symuluje sytuację "użytkownik zaczął pisać słowo" — model ma je dokończyć.
     eligible = [m for m in words if len(_clean_word(m.group())) >= MIN_WORD_LEN]
     if eligible:
@@ -105,32 +163,35 @@ def make_test_cases(sentence: str, rng: random.Random) -> list[TestCase]:
         word = m.group()
         # Punkt cięcia w środku słowa: od 1 do len-1 znaków wpisanych.
         cut = rng.randint(1, len(word) - 1)
-        prefix = sentence[: m.start() + cut]  # zdanie do punktu cięcia włącznie
-        ground_truth = _clean_word(word[cut:])  # brakująca reszta słowa
+        prefix = context_text + target[: m.start() + cut]  # kontekst + target do cięcia
+        ground_truth = _clean_word(word[cut:])  # brakująca reszta słowa (z targetu)
         # Odrzuć, jeśli prefix kończy się spacją (to już byłby word_boundary) lub brak reszty.
         if prefix and prefix[-1] != " " and ground_truth:
             cases.append(TestCase(prefix=prefix, ground_truth=ground_truth, level=LEVEL_MID_WORD))
 
-    # --- word_boundary: prefix kończy się spacją, ground_truth = następne słowo ---
+    # --- word_boundary: prefix kończy się spacją, ground_truth = następne słowo TARGETU ---
     # Symuluje "użytkownik skończył słowo i spację" — model ma podpowiedzieć kolejne słowo.
-    if len(words) >= 2:
-        m = rng.choice(words[1:])  # dowolne słowo poza pierwszym jest "następnym"
-        prefix = sentence[: m.start()]
-        ground_truth = _clean_word(m.group())
-        # Prefix MUSI kończyć się dokładnie jedną spacją (patrz uwaga o rstrip w beam_search).
-        if not prefix.endswith(" "):
-            prefix = prefix.rstrip() + " "
-        if ground_truth:
-            cases.append(TestCase(prefix=prefix, ground_truth=ground_truth, level=LEVEL_WORD_BOUNDARY))
+    # DECYZJA: pierwsze słowo targetu jest dozwolone jako target predykcji — to najsilniejszy
+    # test kontekstu (model przewiduje wyłącznie z S1). Aby je wykluczyć: words[1:].
+    m = rng.choice(words)
+    head = target[: m.start()].rstrip()  # target do granicy słowa, bez końcowych spacji
+    # Prefix MUSI kończyć się dokładnie jedną spacją (patrz uwaga o rstrip w beam_search):
+    # gdy head jest pusty (pierwsze słowo targetu), spację wnosi ". " z kontekstu.
+    prefix = context_text + head + (" " if head else "")
+    ground_truth = _clean_word(m.group())
+    if ground_truth:
+        cases.append(TestCase(prefix=prefix, ground_truth=ground_truth, level=LEVEL_WORD_BOUNDARY))
 
     return cases
 
 
-def build_test_cases(sentences: list[str], rng: random.Random) -> list[TestCase]:
-    """Zbuduj wszystkie test case'y z listy zdań (po ≤2 na zdanie)."""
+def build_test_cases(
+    windows: list[tuple[list[str], str]], rng: random.Random
+) -> list[TestCase]:
+    """Zbuduj wszystkie test case'y z listy okien (po ≤2 na okno)."""
     cases: list[TestCase] = []
-    for sentence in sentences:
-        cases.extend(make_test_cases(sentence, rng))
+    for context, target in windows:
+        cases.extend(make_test_cases(context, target, rng))
     return cases
 
 
@@ -372,6 +433,10 @@ def parse_args(argv: list[str] | None = None) -> EvalConfig:
         "--headline", choices=("strict", "partial"), default="strict",
         help="Matcher liczony jako headline hit/rank/KSR (P4b), domyślnie strict",
     )
+    parser.add_argument(
+        "--context-sentences", type=int, default=1,
+        help="Ile poprzedzających (kolejnych) zdań wchodzi do prefiksu przed targetem, domyślnie 1",
+    )
     args = parser.parse_args(argv)
     return EvalConfig(
         dataset=args.dataset,
@@ -382,6 +447,7 @@ def parse_args(argv: list[str] | None = None) -> EvalConfig:
         seed=args.seed,
         n_gpu_layers=args.n_gpu_layers,
         headline=args.headline,
+        context_sentences=args.context_sentences,
     )
 
 
@@ -390,21 +456,38 @@ def main(argv: list[str] | None = None) -> None:
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
     cfg = parse_args(argv)
 
-    # Walidacja ścieżek przed kosztownym ładowaniem modelu.
+    # Walidacja ścieżek i parametrów przed kosztownym ładowaniem modelu.
     if not cfg.dataset.is_file():
         raise SystemExit(f"Nie znaleziono pliku korpusu: {cfg.dataset}")
     if not cfg.gguf.is_file():
         raise SystemExit(f"Nie znaleziono modelu GGUF: {cfg.gguf}")
+    if cfg.context_sentences < 1:
+        raise SystemExit(
+            f"--context-sentences musi być >= 1 (podano {cfg.context_sentences}); "
+            "test case wymaga co najmniej jednego zdania kontekstu przed targetem."
+        )
 
     rng = random.Random(cfg.seed)  # deterministyczny RNG dla powtarzalnych splitów
     text = cfg.dataset.read_text(encoding="utf-8")
     sentences = parse_sentences(text)
     logger.info("Wczytano %d zdań z %s", len(sentences), cfg.dataset)
 
-    cases = build_test_cases(sentences, rng)
+    # Okna kolejnych zdań: N kontekstu + target. Predykcje wyłącznie w targecie.
+    windows = iter_context_windows(sentences, cfg.context_sentences)
+    logger.info(
+        "Zbudowano %d okien (%d zdań kontekstu + target)", len(windows), cfg.context_sentences
+    )
+    if not windows:
+        raise SystemExit(
+            f"Brak okien kontekstowych — korpus nie zawiera {cfg.context_sentences + 1} "
+            f"kolejnych zdań o długości >= {MIN_SENTENCE_LEN} znaków. "
+            "Zmniejsz --context-sentences albo użyj korpusu z dłuższymi zdaniami."
+        )
+
+    cases = build_test_cases(windows, rng)
     logger.info("Zbudowano %d test case'ów", len(cases))
     if not cases:
-        raise SystemExit("Brak test case'ów — czy korpus zawiera wystarczająco długie zdania?")
+        raise SystemExit("Brak test case'ów — czy okna zawierają słowa nadające się do splitu?")
 
     # Ładowanie modelu Gemma 4 (jednorazowo) i przepuszczenie wszystkich case'ów.
     backend = BeamSearch(str(cfg.gguf), n_gpu_layers=cfg.n_gpu_layers)
