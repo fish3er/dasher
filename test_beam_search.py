@@ -10,6 +10,7 @@ Uruchomienie: python -m unittest test_beam_search -v
 
 from __future__ import annotations
 
+import math
 import unittest
 
 from beam_search import (
@@ -78,10 +79,11 @@ class _FakeBeamSearch(BeamSearch):
             out.append((tok, lp))
         return out
 
-    def suggest(self, prefix: str, n: int = 5, beam_width: int = 5):
+    def suggest(self, prefix: str, n: int = 5, beam_width: int = 5,
+                top_k: int | None = None, top_p: float = 1.0):
         # Odtwórz prefix_text z suggest (word_boundary rstrip) do cięcia cont.
         self._prefix = prefix.rstrip() if prefix[-1:].isspace() else prefix
-        return super().suggest(prefix, n=n, beam_width=beam_width)
+        return super().suggest(prefix, n=n, beam_width=beam_width, top_k=top_k, top_p=top_p)
 
 
 class TestExtract(unittest.TestCase):
@@ -182,6 +184,110 @@ class TestSuggestP2(unittest.TestCase):
 
         bs = _FakeBeamSearch(script)
         self.assertEqual(bs.suggest("Ab", n=5, beam_width=2), [])
+
+
+class TestTopKTopP(unittest.TestCase):
+    """Rozdzielenie `top_k` (pula kandydatów) od `beam_width` (sufit beamów) + nucleus."""
+
+    @staticmethod
+    def _starved_script(cont):
+        # Dwa najlepsze tokeny to boundary (puste complete), litery są dopiero na 3-4.
+        return {
+            "": [(".", -0.1), (",", -0.2), ("i", -1.0), ("o", -1.1)],
+            "i": [(" ", -0.1)],
+            "o": [(" ", -0.1)],
+        }.get(cont, [("<EOS>", -0.1)])
+
+    def test_top_k_defaults_to_beam_width(self):
+        # Bez top_k pula ma szerokość beam_width — odtworzenie zachowania sprzed zmiany
+        # (ten sam skrypt co test_all_boundary_topk_yields_nothing_meaningful).
+        bs = _FakeBeamSearch(self._starved_script)
+        self.assertEqual(bs.suggest("Ab", n=5, beam_width=2), [])
+
+    def test_top_k_wider_than_beam_width_feeds_backfill(self):
+        # Ta sama sytuacja, ale pula sięga poza boundary → P2 ma z czego dobierać.
+        # To jest właśnie limit opisany przy test_all_boundary_topk_...: naprawia go
+        # POSZERZENIE PULI, a nie zmiana P2.
+        bs = _FakeBeamSearch(self._starved_script)
+        texts = [s.text for s in bs.suggest("Ab", n=5, beam_width=2, top_k=4)]
+        self.assertEqual(texts, ["i", "o"])
+
+    def test_top_p_trims_candidate_pool(self):
+        # Nucleus obcina ogon: 'o' (drugie co do prawdopodobieństwa) wypada,
+        # bo pierwszy kandydat sam zbiera masę >= top_p.
+        def script(cont):
+            import math
+            return {
+                "": [("i", math.log(0.9)), ("o", math.log(0.05))],
+                "i": [(" ", -0.1)],
+                "o": [(" ", -0.1)],
+            }.get(cont, [("<EOS>", -0.1)])
+
+        bs = _FakeBeamSearch(script)
+        self.assertEqual([s.text for s in bs.suggest("Ab", n=5, beam_width=2)], ["i", "o"])
+        self.assertEqual([s.text for s in bs.suggest("Ab", n=5, beam_width=2, top_p=0.8)], ["i"])
+
+    def test_nucleus_keeps_shortest_prefix_reaching_p(self):
+        pairs = [(1, math.log(0.6)), (2, math.log(0.25)), (3, math.log(0.1))]
+        self.assertEqual([t for t, _ in BeamSearch._nucleus(pairs, 1.0)], [1, 2, 3])
+        self.assertEqual([t for t, _ in BeamSearch._nucleus(pairs, 0.8)], [1, 2])
+        self.assertEqual([t for t, _ in BeamSearch._nucleus(pairs, 0.5)], [1])
+
+    def test_nucleus_never_empties_pool(self):
+        # Masa liczona po pełnym słowniku: pula obcięta do top_k może nie zebrać top_p.
+        # Wtedy zwracamy ją w całości — top_p nigdy nie DODAJE i nigdy nie zeruje.
+        pairs = [(1, math.log(0.2)), (2, math.log(0.1))]
+        self.assertEqual([t for t, _ in BeamSearch._nucleus(pairs, 0.95)], [1, 2])
+        self.assertEqual(BeamSearch._nucleus([], 0.5), [])
+
+
+class TestDecodeBatchLimits(unittest.TestCase):
+    """Batch musi mieścić się w n_batch (TOKENY) i n_seq_max (SEKWENCJE).
+
+    Limit tokenów wiąże wcześniej niż liczba sekwencji: prefix jest re-enkodowany dla
+    każdego beamu, więc batch rośnie jak beam_width * długość_prefiksu. Przekroczenie
+    n_batch to `llama_decode` = -1, czyli twardy błąd w środku ewaluacji.
+    """
+
+    @staticmethod
+    def _bs(n_batch: int, ctx_seq_max: int = 64):
+        bs = object.__new__(BeamSearch)
+        bs._n_batch = n_batch
+        bs._ctx_seq_max = ctx_seq_max
+        bs.chunks = []
+
+        def fake_decode_batch(sequences):
+            bs.chunks.append([len(s) for s in sequences])
+            return [f"logits{len(s)}" for s in sequences]
+
+        bs._decode_batch = fake_decode_batch
+        return bs
+
+    def test_single_batch_when_within_budget(self):
+        bs = self._bs(n_batch=512)
+        out = bs._decode_last([[0] * 40] * 5)  # 200 tokenów
+        self.assertEqual(len(bs.chunks), 1)
+        self.assertEqual(len(out), 5)
+
+    def test_splits_when_token_budget_exceeded(self):
+        # 12 beamów x 50 tokenów = 600 > 512: bez podziału llama_decode zwraca -1.
+        bs = self._bs(n_batch=512)
+        out = bs._decode_last([[0] * 50] * 12)
+        self.assertGreater(len(bs.chunks), 1)
+        self.assertTrue(all(sum(c) <= 512 for c in bs.chunks))
+        # Kolejność i komplet logitów muszą przetrwać podział na porcje.
+        self.assertEqual(len(out), 12)
+        self.assertEqual(sum(len(c) for c in bs.chunks), 12)
+
+    def test_splits_when_seq_count_exceeds_ctx_seq_max(self):
+        bs = self._bs(n_batch=10_000, ctx_seq_max=4)
+        bs._decode_last([[0] * 10] * 9)
+        self.assertEqual([len(c) for c in bs.chunks], [4, 4, 1])
+
+    def test_sequence_longer_than_n_batch_raises(self):
+        bs = self._bs(n_batch=64)
+        with self.assertRaisesRegex(RuntimeError, "n_batch"):
+            bs._decode_last([[0] * 100])
 
 
 class TestEvalMatchersP4a(unittest.TestCase):

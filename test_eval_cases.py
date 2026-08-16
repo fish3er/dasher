@@ -89,13 +89,18 @@ class _StubRng:
 
 
 class _RecordingBackend:
-    """Atrapa BeamSearch: zapisuje prefiksy i zwraca stałą podpowiedź."""
+    """Atrapa BeamSearch: zapisuje prefiksy (i parametry searcha) oraz zwraca stałą podpowiedź."""
 
     def __init__(self) -> None:
         self.prefixes: list[str] = []
+        self.params: list[tuple[int, int | None, float]] = []
 
-    def suggest(self, prefix: str, n: int = 5, beam_width: int = 5) -> list[Suggestion]:
+    def suggest(
+        self, prefix: str, n: int = 5, beam_width: int = 5,
+        top_k: int | None = None, top_p: float = 1.0,
+    ) -> list[Suggestion]:
         self.prefixes.append(prefix)
+        self.params.append((beam_width, top_k, top_p))
         return [Suggestion(text="atrapa", score=-1.0, level=LEVEL_WORD_BOUNDARY, complete=True)]
 
 
@@ -309,6 +314,26 @@ class TestEvaluateWithStubBackend(unittest.TestCase):
                     self.assertFalse(prefix.endswith("  "))
                 else:
                     self.assertFalse(prefix.endswith(" "))
+
+    def test_search_params_reach_backend(self):
+        # Parametry searcha muszą docierać do suggest() także w rozgrzewce (P5) —
+        # rozgrzewka na innym beam_width kompilowałaby inną ścieżkę niż mierzona.
+        cases = build_test_cases(_windows_from(_text(L1, L2)), random.Random(42))
+        cfg = EvalConfig(
+            dataset=Path("korpus.txt"), gguf=Path("model.gguf"),
+            beam_width=12, top_k=32, top_p=0.8,
+        )
+        backend = _RecordingBackend()
+        evaluate(backend, cases, cfg)
+        self.assertEqual(set(backend.params), {(12, 32, 0.8)})
+        self.assertEqual(len(backend.params), len(cases) + 1)  # +1 = rozgrzewka
+
+    def test_default_config_leaves_top_k_coupled(self):
+        # Domyślnie top_k=None (sprzężone z beam_width) i top_p=1.0 (nucleus wyłączony) —
+        # domyślny przebieg eval musi być identyczny jak przed rozdzieleniem parametrów.
+        cfg = EvalConfig(dataset=Path("korpus.txt"), gguf=Path("model.gguf"))
+        self.assertIsNone(cfg.top_k)
+        self.assertEqual(cfg.top_p, 1.0)
 
 
 if __name__ == "__main__":

@@ -1,0 +1,3429 @@
+{
+  "model": "google_gemma-4-E4B-it-Q4_K_M.gguf",
+  "dataset": "test_phrases_pl.txt",
+  "n_suggestions": 5,
+  "beam_width": 5,
+  "seed": 42,
+  "headline": "strict",
+  "n_samples": 236,
+  "metrics": {
+    "mrr_at_5": 0.2856638418079096,
+    "hit_at_1": 0.2457627118644068,
+    "hit_at_5": 0.3389830508474576,
+    "hit_at_5_strict": 0.3389830508474576,
+    "hit_at_5_partial": 0.3389830508474576,
+    "mrr_at_5_strict": 0.2856638418079096,
+    "mrr_at_5_partial": 0.2856638418079096,
+    "ksr": 0.2613019891500904,
+    "latency_mean_ms": 176.117631444916,
+    "latency_p50_ms": 172.47370100000126,
+    "latency_p95_ms": 333.9919085000247,
+    "n_samples": 236
+  },
+  "metrics_by_level": {
+    "mid_word": {
+      "mrr_at_5": 0.15948275862068967,
+      "hit_at_1": 0.13793103448275862,
+      "hit_at_5": 0.1896551724137931,
+      "hit_at_5_strict": 0.1896551724137931,
+      "hit_at_5_partial": 0.1896551724137931,
+      "mrr_at_5_strict": 0.15948275862068967,
+      "mrr_at_5_partial": 0.15948275862068967,
+      "ksr": 0.13095238095238093,
+      "latency_mean_ms": 172.82378416379385,
+      "latency_p50_ms": 175.43613349999987,
+      "latency_p95_ms": 317.3735085000118,
+      "n_samples": 116
+    },
+    "word_boundary": {
+      "mrr_at_5": 0.4076388888888889,
+      "hit_at_1": 0.35,
+      "hit_at_5": 0.48333333333333334,
+      "hit_at_5_strict": 0.48333333333333334,
+      "hit_at_5_partial": 0.48333333333333334,
+      "mrr_at_5_strict": 0.4076388888888889,
+      "mrr_at_5_partial": 0.4076388888888889,
+      "ksr": 0.3411078717201166,
+      "latency_mean_ms": 179.3016838166674,
+      "latency_p50_ms": 172.42361099999926,
+      "latency_p95_ms": 340.65592724998623,
+      "n_samples": 120
+    }
+  },
+  "per_sample": [
+    {
+      "prefix": "Wszystko dobrze u mnie, właśnie wróciłem do d",
+      "ground_truth": "omu",
+      "level": "mid_word",
+      "suggestions": [
+        "worku",
+        "achu",
+        "żungli"
+      ],
+      "hit": false,
+      "rank": 0,
+      "rank_strict": 0,
+      "rank_partial": 0,
+      "latency_ms": 350.0978939999868
+    },
+    {
+      "prefix": "Wszystko ",
+      "ground_truth": "dobrze",
+      "level": "word_boundary",
+      "suggestions": [
+        "idzie",
+        "jest",
+        "w"
+      ],
+      "hit": false,
+      "rank": 0,
+      "rank_strict": 0,
+      "rank_partial": 0,
+      "latency_ms": 210.4542609999953
+    },
+    {
+      "prefix": "Dobra, to widzimy się jutro o osiemnastej po",
+      "ground_truth": "d",
+      "level": "mid_word",
+      "suggestions": [],
+      "hit": false,
+      "rank": 0,
+      "rank_strict": 0,
+      "rank_partial": 0,
+      "latency_ms": 50.616050000030555
+    },
+    {
+      "prefix": "Dobra, to widzimy się ",
+      "ground_truth": "jutro",
+      "level": "word_boundary",
+      "suggestions": [
+        "jutro",
+        "w"
+      ],
+      "hit": true,
+      "rank": 1,
+      "rank_strict": 1,
+      "rank_partial": 1,
+      "latency_ms": 124.6573020000028
+    },
+    {
+      "prefix": "Przepraszam za spóźnienie, jestem j",
+      "ground_truth": "uż",
+      "level": "mid_word",
+      "suggestions": [
+        "askiniowcem",
+        "arkiem",
+        "awnym"
+      ],
+      "hit": false,
+      "rank": 0,
+      "rank_strict": 0,
+      "rank_partial": 0,
+      "latency_ms": 317.52344400001675
+    },
+    {
+      "prefix": "Przepraszam za ",
+      "ground_truth": "spóźnienie",
+      "level": "word_boundary",
+      "suggestions": [
+        "opóźnienie",
+        "niedogodności",
+        "spóźnienie",
+        "zaistniałe"
+      ],
+      "hit": true,
+      "rank": 3,
+      "rank_strict": 3,
+      "rank_partial": 3,
+      "latency_ms": 309.3996140000286
+    },
+    {
+      "prefix": "Dzięki za wczoraj, świetnie się b",
+      "ground_truth": "awiłem",
+      "level": "mid_word",
+      "suggestions": [
+        "awiłem",
+        "awiłem/am",
+        "awiłam",
+        "awiłem/bawiliśmy"
+      ],
+      "hit": true,
+      "rank": 1,
+      "rank_strict": 1,
+      "rank_partial": 1,
+      "latency_ms": 365.0717969999846
+    },
+    {
+      "prefix": "Dzięki za wczoraj, świetnie się ",
+      "ground_truth": "bawiłem",
+      "level": "word_boundary",
+      "suggestions": [
+        "bawiliśmy",
+        "bawiłem",
+        "bawiłam"
+      ],
+      "hit": true,
+      "rank": 2,
+      "rank_strict": 2,
+      "rank_partial": 2,
+      "latency_ms": 277.8266010000152
+    },
+    {
+      "prefix": "Możesz mi wysłać ten p",
+      "ground_truth": "lik",
+      "level": "mid_word",
+      "suggestions": [
+        "iosenkę",
+        "iosenki"
+      ],
+      "hit": false,
+      "rank": 0,
+      "rank_strict": 0,
+      "rank_partial": 0,
+      "latency_ms": 273.29427600000145
+    },
+    {
+      "prefix": "Możesz ",
+      "ground_truth": "mi",
+      "level": "word_boundary",
+      "suggestions": [
+        "mi",
+        "pomóc"
+      ],
+      "hit": true,
+      "rank": 1,
+      "rank_strict": 1,
+      "rank_partial": 1,
+      "latency_ms": 93.78469900002528
+    },
+    {
+      "prefix": "N",
+      "ground_truth": "ie",
+      "level": "mid_word",
+      "suggestions": [],
+      "hit": false,
+      "rank": 0,
+      "rank_strict": 0,
+      "rank_partial": 0,
+      "latency_ms": 18.359617999976763
+    },
+    {
+      "prefix": "Nie mogę ",
+      "ground_truth": "dzisiaj",
+      "level": "word_boundary",
+      "suggestions": [
+        "pomóc",
+        "generować",
+        "generare"
+      ],
+      "hit": false,
+      "rank": 0,
+      "rank_strict": 0,
+      "rank_partial": 0,
+      "latency_ms": 134.3408910000221
+    },
+    {
+      "prefix": "Zamawiam jak zwykle, dasz rad",
+      "ground_truth": "ę",
+      "level": "mid_word",
+      "suggestions": [
+        "ę"
+      ],
+      "hit": true,
+      "rank": 1,
+      "rank_strict": 1,
+      "rank_partial": 1,
+      "latency_ms": 124.66285199997174
+    },
+    {
+      "prefix": "Zamawiam ",
+      "ground_truth": "jak",
+      "level": "word_boundary",
+      "suggestions": [
+        "1x"
+      ],
+      "hit": false,
+      "rank": 0,
+      "rank_strict": 0,
+      "rank_partial": 0,
+      "latency_ms": 147.57315500003187
+    },
+    {
+      "prefix": "Jasne, zajmę się tym ju",
+      "ground_truth": "tro",
+      "level": "mid_word",
+      "suggestions": [
+        "ż"
+      ],
+      "hit": false,
+      "rank": 0,
+      "rank_strict": 0,
+      "rank_partial": 0,
+      "latency_ms": 122.78101499998684
+    },
+    {
+      "prefix": "Jasne, zajmę się tym jutro ",
+      "ground_truth": "rano",
+      "level": "word_boundary",
+      "suggestions": [
+        "rano"
+      ],
+      "hit": true,
+      "rank": 1,
+      "rank_strict": 1,
+      "rank_partial": 1,
+      "latency_ms": 153.2697879999887
+    },
+    {
+      "prefix": "Czy mógłbyś przesunąć spot",
+      "ground_truth": "kanie",
+      "level": "mid_word",
+      "suggestions": [
+        "kanie"
+      ],
+      "hit": true,
+      "rank": 1,
+      "rank_strict": 1,
+      "rank_partial": 1,
+      "latency_ms": 122.01605600000676
+    },
+    {
+      "prefix": "Czy mógłbyś przesunąć spotkanie ",
+      "ground_truth": "na",
+      "level": "word_boundary",
+      "suggestions": [
+        "o",
+        "na"
+      ],
+      "hit": true,
+      "rank": 2,
+      "rank_strict": 2,
+      "rank_partial": 2,
+      "latency_ms": 118.67396899998539
+    },
+    {
+      "prefix": "Dobra robota, naprawdę świetnie to zro",
+      "ground_truth": "biłeś",
+      "level": "mid_word",
+      "suggestions": [
+        "byłeś",
+        "bileś",
+        "biłeś"
+      ],
+      "hit": true,
+      "rank": 3,
+      "rank_strict": 3,
+      "rank_partial": 3,
+      "latency_ms": 264.7637960000111
+    },
+    {
+      "prefix": "Dobra ",
+      "ground_truth": "robota",
+      "level": "word_boundary",
+      "suggestions": [
+        "noc",
+        "robota"
+      ],
+      "hit": true,
+      "rank": 2,
+      "rank_strict": 2,
+      "rank_partial": 2,
+      "latency_ms": 87.06680699998515
+    },
+    {
+      "prefix": "Mam dziś woln",
+      "ground_truth": "e",
+      "level": "mid_word",
+      "suggestions": [
+        "iony",
+        "osc"
+      ],
+      "hit": false,
+      "rank": 0,
+      "rank_strict": 0,
+      "rank_partial": 0,
+      "latency_ms": 70.20846699998629
+    },
+    {
+      "prefix": "Mam dziś wolne po południu, możemy ",
+      "ground_truth": "pogadać",
+      "level": "word_boundary",
+      "suggestions": [
+        "spotkać",
+        "się",
+        "coś"
+      ],
+      "hit": false,
+      "rank": 0,
+      "rank_strict": 0,
+      "rank_partial": 0,
+      "latency_ms": 228.45099899996058
+    },
+    {
+      "prefix": "Zostań na chwilę po zaj",
+      "ground_truth": "ęciach",
+      "level": "mid_word",
+      "suggestions": [
+        "ęciach"
+      ],
+      "hit": true,
+      "rank": 1,
+      "rank_strict": 1,
+      "rank_partial": 1,
+      "latency_ms": 251.67758200001344
+    },
+    {
+      "prefix": "Zostań na ",
+      "ground_truth": "chwilę",
+      "level": "word_boundary",
+      "suggestions": [
+        "dłużej",
+        "bieżąco"
+      ],
+      "hit": false,
+      "rank": 0,
+      "rank_strict": 0,
+      "rank_partial": 0,
+      "latency_ms": 149.7795430000224
+    },
+    {
+      "prefix": "Właśnie skończyłem r",
+      "ground_truth": "aport",
+      "level": "mid_word",
+      "suggestions": [
+        "zemieślnicze",
+        "zeźbić",
+        "zemieślniczy",
+        "zeźbienie"
+      ],
+      "hit": false,
+      "rank": 0,
+      "rank_strict": 0,
+      "rank_partial": 0,
+      "latency_ms": 359.9444629999766
+    },
+    {
+      "prefix": "Właśnie ",
+      "ground_truth": "skończyłem",
+      "level": "word_boundary",
+      "suggestions": [
+        "skończyłem",
+        "przeczytałem"
+      ],
+      "hit": true,
+      "rank": 1,
+      "rank_strict": 1,
+      "rank_partial": 1,
+      "latency_ms": 213.4105869999985
+    },
+    {
+      "prefix": "Bo mam zapisane że trzysta dwanaście, ale nie j",
+      "ground_truth": "estem",
+      "level": "mid_word",
+      "suggestions": [
+        "aram",
+        "adam"
+      ],
+      "hit": false,
+      "rank": 0,
+      "rank_strict": 0,
+      "rank_partial": 0,
+      "latency_ms": 134.54235099999323
+    },
+    {
+      "prefix": "Bo mam zapisane że trzysta dwanaście, ",
+      "ground_truth": "ale",
+      "level": "word_boundary",
+      "suggestions": [
+        "ale",
+        "a"
+      ],
+      "hit": true,
+      "rank": 1,
+      "rank_strict": 1,
+      "rank_partial": 1,
+      "latency_ms": 133.72774099997287
+    },
+    {
+      "prefix": "Hej, pamiętasz o jutrzejszy",
+      "ground_truth": "m",
+      "level": "mid_word",
+      "suggestions": [],
+      "hit": false,
+      "rank": 0,
+      "rank_strict": 0,
+      "rank_partial": 0,
+      "latency_ms": 51.76794900000914
+    },
+    {
+      "prefix": "Hej, pamiętasz o ",
+      "ground_truth": "jutrzejszym",
+      "level": "word_boundary",
+      "suggestions": [
+        "tym",
+        "mnie",
+        "projekcie",
+        "tej"
+      ],
+      "hit": false,
+      "rank": 0,
+      "rank_strict": 0,
+      "rank_partial": 0,
+      "latency_ms": 122.8596640000319
+    },
+    {
+      "prefix": "Ni",
+      "ground_truth": "e",
+      "level": "mid_word",
+      "suggestions": [
+        "NiNiNiNiNiNi",
+        "NiNNiNiNNi",
+        "NiNNiNNiN",
+        "NiNiNiNiNi"
+      ],
+      "hit": false,
+      "rank": 0,
+      "rank_strict": 0,
+      "rank_partial": 0,
+      "latency_ms": 243.15776200000982
+    },
+    {
+      "prefix": "Nie zapomnij zabrać ze sobą dokumentów, będą potrzebne na ",
+      "ground_truth": "miejscu",
+      "level": "word_boundary",
+      "suggestions": [
+        "rejestrację",
+        "odprawie",
+        "odprawę"
+      ],
+      "hit": false,
+      "rank": 0,
+      "rank_strict": 0,
+      "rank_partial": 0,
+      "latency_ms": 277.574211000001
+    },
+    {
+      "prefix": "Kupi",
+      "ground_truth": "łem",
+      "level": "mid_word",
+      "suggestions": [
+        "ćićićićićići",
+        "ćićićićićiћи",
+        "ćićićićićiće",
+        "ćićićićićić",
+        "ćićićićićeći"
+      ],
+      "hit": false,
+      "rank": 0,
+      "rank_strict": 0,
+      "rank_partial": 0,
+      "latency_ms": 195.0807690000147
+    },
+    {
+      "prefix": "Kupiłem bilety, ",
+      "ground_truth": "jedziemy",
+      "level": "word_boundary",
+      "suggestions": [
+        "zapłaciłem",
+        "ale"
+      ],
+      "hit": false,
+      "rank": 0,
+      "rank_strict": 0,
+      "rank_partial": 0,
+      "latency_ms": 242.03021300002092
+    },
+    {
+      "prefix": "Zadzwoń do mnie jak skończysz, ma",
+      "ground_truth": "m",
+      "level": "mid_word",
+      "suggestions": [
+        "ła",
+        "ile"
+      ],
+      "hit": false,
+      "rank": 0,
+      "rank_strict": 0,
+      "rank_partial": 0,
+      "latency_ms": 123.14103400001386
+    },
+    {
+      "prefix": "Zadzwoń do mnie jak ",
+      "ground_truth": "skończysz",
+      "level": "word_boundary",
+      "suggestions": [
+        "tylko",
+        "będziesz"
+      ],
+      "hit": false,
+      "rank": 0,
+      "rank_strict": 0,
+      "rank_partial": 0,
+      "latency_ms": 193.64384099998233
+    },
+    {
+      "prefix": "J",
+      "ground_truth": "uż",
+      "level": "mid_word",
+      "suggestions": [],
+      "hit": false,
+      "rank": 0,
+      "rank_strict": 0,
+      "rank_partial": 0,
+      "latency_ms": 16.367870999999923
+    },
+    {
+      "prefix": "Już jestem ",
+      "ground_truth": "na",
+      "level": "word_boundary",
+      "suggestions": [
+        "gotów",
+        "gotowy"
+      ],
+      "hit": false,
+      "rank": 0,
+      "rank_strict": 0,
+      "rank_partial": 0,
+      "latency_ms": 120.02816799997618
+    },
+    {
+      "prefix": "Dzięki, dałeś r",
+      "ground_truth": "adę",
+      "level": "mid_word",
+      "suggestions": [
+        "ąbka",
+        "ączkę",
+        "ączki"
+      ],
+      "hit": false,
+      "rank": 0,
+      "rank_strict": 0,
+      "rank_partial": 0,
+      "latency_ms": 217.25420199999235
+    },
+    {
+      "prefix": "Dzięki, dałeś ",
+      "ground_truth": "radę",
+      "level": "word_boundary",
+      "suggestions": [
+        "mi"
+      ],
+      "hit": false,
+      "rank": 0,
+      "rank_strict": 0,
+      "rank_partial": 0,
+      "latency_ms": 89.63353399997231
+    },
+    {
+      "prefix": "Musisz koniecznie zobaczyć to miejsce, wróciłem stamtąd za",
+      "ground_truth": "chwycony",
+      "level": "mid_word",
+      "suggestions": [
+        "awansowany",
+        "awansowanym"
+      ],
+      "hit": false,
+      "rank": 0,
+      "rank_strict": 0,
+      "rank_partial": 0,
+      "latency_ms": 272.94002600001477
+    },
+    {
+      "prefix": "Musisz koniecznie zobaczyć to ",
+      "ground_truth": "miejsce",
+      "level": "word_boundary",
+      "suggestions": [
+        "miejsce",
+        "–"
+      ],
+      "hit": true,
+      "rank": 1,
+      "rank_strict": 1,
+      "rank_partial": 1,
+      "latency_ms": 72.80547400000614
+    },
+    {
+      "prefix": "Zrobiłam już zakupy, brakuje na",
+      "ground_truth": "m",
+      "level": "mid_word",
+      "suggestions": [],
+      "hit": false,
+      "rank": 0,
+      "rank_strict": 0,
+      "rank_partial": 0,
+      "latency_ms": 50.452800000016396
+    },
+    {
+      "prefix": "Zrobiłam już zakupy, brakuje nam tylko ",
+      "ground_truth": "chleba",
+      "level": "word_boundary",
+      "suggestions": [
+        "składników",
+        "pieczywa",
+        "jednego"
+      ],
+      "hit": false,
+      "rank": 0,
+      "rank_strict": 0,
+      "rank_partial": 0,
+      "latency_ms": 234.71200199998066
+    },
+    {
+      "prefix": "Spotkajmy się pr",
+      "ground_truth": "zy",
+      "level": "mid_word",
+      "suggestions": [
+        "zerwą",
+        "zerwę",
+        "zymierze",
+        "zymierzeSpotkanieSpot"
+      ],
+      "hit": false,
+      "rank": 0,
+      "rank_strict": 0,
+      "rank_partial": 0,
+      "latency_ms": 296.94398800000954
+    },
+    {
+      "prefix": "Spotkajmy się przy fontannie, stamtąd pójdziemy ",
+      "ground_truth": "razem",
+      "level": "word_boundary",
+      "suggestions": [
+        "do",
+        "na",
+        "spacerem",
+        "razem"
+      ],
+      "hit": true,
+      "rank": 4,
+      "rank_strict": 4,
+      "rank_partial": 4,
+      "latency_ms": 184.66390100002172
+    },
+    {
+      "prefix": "Nie zdążył",
+      "ground_truth": "em",
+      "level": "mid_word",
+      "suggestions": [],
+      "hit": false,
+      "rank": 0,
+      "rank_strict": 0,
+      "rank_partial": 0,
+      "latency_ms": 17.878929000005428
+    },
+    {
+      "prefix": "Nie zdążyłem na pociąg, następny ",
+      "ground_truth": "odjeżdża",
+      "level": "word_boundary",
+      "suggestions": [
+        "odjeżdża",
+        "jest",
+        "odjedzie"
+      ],
+      "hit": true,
+      "rank": 1,
+      "rank_strict": 1,
+      "rank_partial": 1,
+      "latency_ms": 287.07086999997955
+    },
+    {
+      "prefix": "Obejrzeliśmy wczor",
+      "ground_truth": "aj",
+      "level": "mid_word",
+      "suggestions": [
+        "ze",
+        "zeku"
+      ],
+      "hit": false,
+      "rank": 0,
+      "rank_strict": 0,
+      "rank_partial": 0,
+      "latency_ms": 175.56314199998724
+    },
+    {
+      "prefix": "Obejrzeliśmy wczoraj świetny ",
+      "ground_truth": "film",
+      "level": "word_boundary",
+      "suggestions": [
+        "film",
+        "mecz"
+      ],
+      "hit": true,
+      "rank": 1,
+      "rank_strict": 1,
+      "rank_partial": 1,
+      "latency_ms": 123.02546400002257
+    },
+    {
+      "prefix": "Pamiętaj, żeby podlać kw",
+      "ground_truth": "iatki",
+      "level": "mid_word",
+      "suggestions": [
+        "itnące",
+        "itnącą"
+      ],
+      "hit": false,
+      "rank": 0,
+      "rank_strict": 0,
+      "rank_partial": 0,
+      "latency_ms": 253.77602000003208
+    },
+    {
+      "prefix": "Pamiętaj, żeby podlać kwiatki, ",
+      "ground_truth": "kiedy",
+      "level": "word_boundary",
+      "suggestions": [
+        "bo",
+        "inaczej",
+        "żeby"
+      ],
+      "hit": false,
+      "rank": 0,
+      "rank_strict": 0,
+      "rank_partial": 0,
+      "latency_ms": 181.74028399999997
+    },
+    {
+      "prefix": "Zgubiłam gdzieś klucze, sprawdź proszę czy ni",
+      "ground_truth": "e",
+      "level": "mid_word",
+      "suggestions": [
+        "emożliwe",
+        "emiędzymczasowo"
+      ],
+      "hit": false,
+      "rank": 0,
+      "rank_strict": 0,
+      "rank_partial": 0,
+      "latency_ms": 411.3180929999771
+    },
+    {
+      "prefix": "Zgubiłam gdzieś klucze, sprawdź proszę czy nie zostały u ",
+      "ground_truth": "ciebie",
+      "level": "word_boundary",
+      "suggestions": [
+        "mnie",
+        "kogoś",
+        "nas",
+        "Ciebie"
+      ],
+      "hit": true,
+      "rank": 4,
+      "rank_strict": 4,
+      "rank_partial": 4,
+      "latency_ms": 238.3417870000244
+    },
+    {
+      "prefix": "Przygotowałem prezentację na jutro, al",
+      "ground_truth": "e",
+      "level": "mid_word",
+      "suggestions": [
+        "bo"
+      ],
+      "hit": false,
+      "rank": 0,
+      "rank_strict": 0,
+      "rank_partial": 0,
+      "latency_ms": 130.2090460000045
+    },
+    {
+      "prefix": "Przygotowałem ",
+      "ground_truth": "prezentację",
+      "level": "word_boundary",
+      "suggestions": [
+        "prezentację",
+        "materiały",
+        "zestaw"
+      ],
+      "hit": true,
+      "rank": 1,
+      "rank_strict": 1,
+      "rank_partial": 1,
+      "latency_ms": 131.46664399999963
+    },
+    {
+      "prefix": "Dostałaś j",
+      "ground_truth": "uż",
+      "level": "mid_word",
+      "suggestions": [
+        "akiś",
+        "armark"
+      ],
+      "hit": false,
+      "rank": 0,
+      "rank_strict": 0,
+      "rank_partial": 0,
+      "latency_ms": 128.79139799997574
+    },
+    {
+      "prefix": "Dostałaś już wiadomość od księgowej w sprawie ",
+      "ground_truth": "faktury",
+      "level": "word_boundary",
+      "suggestions": [
+        "faktury",
+        "podatków",
+        "zaliczek",
+        "podatku",
+        "rozliczenia"
+      ],
+      "hit": true,
+      "rank": 1,
+      "rank_strict": 1,
+      "rank_partial": 1,
+      "latency_ms": 267.73397299996304
+    },
+    {
+      "prefix": "Wpadnij do nas w weekend, dawno się ni",
+      "ground_truth": "e",
+      "level": "mid_word",
+      "suggestions": [
+        "emiło",
+        "emięliśmy",
+        "emiłem"
+      ],
+      "hit": false,
+      "rank": 0,
+      "rank_strict": 0,
+      "rank_partial": 0,
+      "latency_ms": 309.3689030000064
+    },
+    {
+      "prefix": "Wpadnij do nas w weekend, ",
+      "ground_truth": "dawno",
+      "level": "word_boundary",
+      "suggestions": [
+        "zrobimy",
+        "zapraszamy"
+      ],
+      "hit": false,
+      "rank": 0,
+      "rank_strict": 0,
+      "rank_partial": 0,
+      "latency_ms": 268.4576920000268
+    },
+    {
+      "prefix": "Zapo",
+      "ground_truth": "mniałem",
+      "level": "mid_word",
+      "suggestions": [
+        "życzenia",
+        "życzenie"
+      ],
+      "hit": false,
+      "rank": 0,
+      "rank_strict": 0,
+      "rank_partial": 0,
+      "latency_ms": 128.1354679999822
+    },
+    {
+      "prefix": "Zapomniałem parasola, a na dworze zaczyna ",
+      "ground_truth": "właśnie",
+      "level": "word_boundary",
+      "suggestions": [
+        "padać",
+        "lać",
+        "sypać"
+      ],
+      "hit": false,
+      "rank": 0,
+      "rank_strict": 0,
+      "rank_partial": 0,
+      "latency_ms": 270.17971000003627
+    },
+    {
+      "prefix": "Umówiłem si",
+      "ground_truth": "ę",
+      "level": "mid_word",
+      "suggestions": [
+        "łę",
+        "ostrę",
+        "ę"
+      ],
+      "hit": true,
+      "rank": 3,
+      "rank_strict": 3,
+      "rank_partial": 3,
+      "latency_ms": 108.82869099998516
+    },
+    {
+      "prefix": "Umówiłem się z lekarzem na przyszły wtorek ",
+      "ground_truth": "o",
+      "level": "word_boundary",
+      "suggestions": [
+        "o",
+        "na",
+        "po"
+      ],
+      "hit": true,
+      "rank": 1,
+      "rank_strict": 1,
+      "rank_partial": 1,
+      "latency_ms": 120.59935700000324
+    },
+    {
+      "prefix": "Kupiłabym ten płaszcz, gdyby był dostępny w moim roz",
+      "ground_truth": "miarze",
+      "level": "mid_word",
+      "suggestions": [
+        "dziale",
+        "marzonym",
+        "miarem"
+      ],
+      "hit": false,
+      "rank": 0,
+      "rank_strict": 0,
+      "rank_partial": 0,
+      "latency_ms": 276.173153000002
+    },
+    {
+      "prefix": "Kupiłabym ten płaszcz, gdyby był ",
+      "ground_truth": "dostępny",
+      "level": "word_boundary",
+      "suggestions": [
+        "w",
+        "dostępny"
+      ],
+      "hit": true,
+      "rank": 2,
+      "rank_strict": 2,
+      "rank_partial": 2,
+      "latency_ms": 182.84534299999677
+    },
+    {
+      "prefix": "Wysłałem ci ma",
+      "ground_truth": "ilem",
+      "level": "mid_word",
+      "suggestions": [
+        "ile",
+        "ilem"
+      ],
+      "hit": true,
+      "rank": 2,
+      "rank_strict": 2,
+      "rank_partial": 2,
+      "latency_ms": 91.32150200002798
+    },
+    {
+      "prefix": "Wysłałem ci mailem wszystkie potrzebne dokumenty, ",
+      "ground_truth": "sprawdź",
+      "level": "word_boundary",
+      "suggestions": [
+        "proszę",
+        "ale",
+        "a"
+      ],
+      "hit": false,
+      "rank": 0,
+      "rank_strict": 0,
+      "rank_partial": 0,
+      "latency_ms": 191.890821999948
+    },
+    {
+      "prefix": "Nauczyłem się wreszcie tego przepis",
+      "ground_truth": "u",
+      "level": "mid_word",
+      "suggestions": [
+        "owi",
+        "ów",
+        "owego"
+      ],
+      "hit": false,
+      "rank": 0,
+      "rank_strict": 0,
+      "rank_partial": 0,
+      "latency_ms": 118.39793000001464
+    },
+    {
+      "prefix": "Nauczyłem się wreszcie tego przepisu, ",
+      "ground_truth": "wyszedł",
+      "level": "word_boundary",
+      "suggestions": [
+        "który",
+        "a"
+      ],
+      "hit": false,
+      "rank": 0,
+      "rank_strict": 0,
+      "rank_partial": 0,
+      "latency_ms": 131.71734399998059
+    },
+    {
+      "prefix": "Przeprowadzka okazała się trudni",
+      "ground_truth": "ejsza",
+      "level": "mid_word",
+      "suggestions": [
+        "akiem",
+        "utka",
+        "aka",
+        "emi"
+      ],
+      "hit": false,
+      "rank": 0,
+      "rank_strict": 0,
+      "rank_partial": 0,
+      "latency_ms": 175.4307420000032
+    },
+    {
+      "prefix": "Przeprowadzka okazała ",
+      "ground_truth": "się",
+      "level": "word_boundary",
+      "suggestions": [
+        "się"
+      ],
+      "hit": true,
+      "rank": 1,
+      "rank_strict": 1,
+      "rank_partial": 1,
+      "latency_ms": 71.64939500000855
+    },
+    {
+      "prefix": "Zadzwoniłabym wcześniej, ale telefon rozładował mi się w ",
+      "ground_truth": "podróży",
+      "level": "word_boundary",
+      "suggestions": [
+        "ostatniej",
+        "pośpiechu",
+        "drodze",
+        "kluczowym"
+      ],
+      "hit": false,
+      "rank": 0,
+      "rank_strict": 0,
+      "rank_partial": 0,
+      "latency_ms": 338.7757190000116
+    },
+    {
+      "prefix": "Skończyłeś j",
+      "ground_truth": "uż",
+      "level": "mid_word",
+      "suggestions": [
+        "apońską",
+        "apoński",
+        "adalnię"
+      ],
+      "hit": false,
+      "rank": 0,
+      "rank_strict": 0,
+      "rank_partial": 0,
+      "latency_ms": 212.190717999988
+    },
+    {
+      "prefix": "Skończyłeś już ",
+      "ground_truth": "czytać",
+      "level": "word_boundary",
+      "suggestions": [
+        "czytać",
+        "zadanie",
+        "książkę"
+      ],
+      "hit": true,
+      "rank": 1,
+      "rank_strict": 1,
+      "rank_partial": 1,
+      "latency_ms": 144.85286899997618
+    },
+    {
+      "prefix": "Zarezerwowałem st",
+      "ground_truth": "olik",
+      "level": "mid_word",
+      "suggestions": [
+        "ół",
+        "refę"
+      ],
+      "hit": false,
+      "rank": 0,
+      "rank_strict": 0,
+      "rank_partial": 0,
+      "latency_ms": 141.14210200000343
+    },
+    {
+      "prefix": "Zarezerwowałem stolik na sobotę, mam nadzieję że ",
+      "ground_truth": "wszystkim",
+      "level": "word_boundary",
+      "suggestions": [
+        "będzie",
+        "pogoda"
+      ],
+      "hit": false,
+      "rank": 0,
+      "rank_strict": 0,
+      "rank_partial": 0,
+      "latency_ms": 187.01167900002247
+    },
+    {
+      "prefix": "Odebrałam paczkę z punktu, leży t",
+      "ground_truth": "eraz",
+      "level": "mid_word",
+      "suggestions": [
+        "warda",
+        "wardo"
+      ],
+      "hit": false,
+      "rank": 0,
+      "rank_strict": 0,
+      "rank_partial": 0,
+      "latency_ms": 217.8713220000077
+    },
+    {
+      "prefix": "Odebrałam paczkę z punktu, leży teraz na ",
+      "ground_truth": "stole",
+      "level": "word_boundary",
+      "suggestions": [
+        "stole",
+        "podłodze",
+        "blacie"
+      ],
+      "hit": true,
+      "rank": 1,
+      "rank_strict": 1,
+      "rank_partial": 1,
+      "latency_ms": 257.5010950000092
+    },
+    {
+      "prefix": "Naprawiłem w końcu ten ciekn",
+      "ground_truth": "ący",
+      "level": "mid_word",
+      "suggestions": [
+        "ący"
+      ],
+      "hit": true,
+      "rank": 1,
+      "rank_strict": 1,
+      "rank_partial": 1,
+      "latency_ms": 195.740848000014
+    },
+    {
+      "prefix": "Naprawiłem w końcu ten cieknący kran w łazience ",
+      "ground_truth": "na",
+      "level": "word_boundary",
+      "suggestions": [
+        "i"
+      ],
+      "hit": false,
+      "rank": 0,
+      "rank_strict": 0,
+      "rank_partial": 0,
+      "latency_ms": 119.21564800002216
+    },
+    {
+      "prefix": "Chciałbym pojechać nad morze, z",
+      "ground_truth": "anim",
+      "level": "mid_word",
+      "suggestions": [
+        "relaksować",
+        "ależy",
+        "relaksujesz",
+        "relaksuje"
+      ],
+      "hit": false,
+      "rank": 0,
+      "rank_strict": 0,
+      "rank_partial": 0,
+      "latency_ms": 331.2248480000335
+    },
+    {
+      "prefix": "Chciałbym pojechać nad morze, zanim skończą ",
+      "ground_truth": "się",
+      "level": "word_boundary",
+      "suggestions": [
+        "się"
+      ],
+      "hit": true,
+      "rank": 1,
+      "rank_strict": 1,
+      "rank_partial": 1,
+      "latency_ms": 132.60109300000522
+    },
+    {
+      "prefix": "Przyniosłam ciasto, które upiekłam wczoraj ",
+      "ground_truth": "wieczorem",
+      "level": "word_boundary",
+      "suggestions": [
+        "wieczorem"
+      ],
+      "hit": true,
+      "rank": 1,
+      "rank_strict": 1,
+      "rank_partial": 1,
+      "latency_ms": 172.44591600001513
+    },
+    {
+      "prefix": "Zdałeś ten egzamin, o którym tyle s",
+      "ground_truth": "ię",
+      "level": "mid_word",
+      "suggestions": [
+        "zeptano",
+        "zeptaliście",
+        "zeptali"
+      ],
+      "hit": false,
+      "rank": 0,
+      "rank_strict": 0,
+      "rank_partial": 0,
+      "latency_ms": 266.50981400001683
+    },
+    {
+      "prefix": "Zdałeś ten egzamin, o którym ",
+      "ground_truth": "tyle",
+      "level": "word_boundary",
+      "suggestions": [
+        "mówisz",
+        "rozmawialiśmy",
+        "mówimy",
+        "mowa"
+      ],
+      "hit": false,
+      "rank": 0,
+      "rank_strict": 0,
+      "rank_partial": 0,
+      "latency_ms": 296.134128999995
+    },
+    {
+      "prefix": "Zostawiłem ci notatkę na lodówce, prz",
+      "ground_truth": "eczytaj",
+      "level": "mid_word",
+      "suggestions": [
+        "ynieś",
+        "yniósł",
+        "yniosem"
+      ],
+      "hit": false,
+      "rank": 0,
+      "rank_strict": 0,
+      "rank_partial": 0,
+      "latency_ms": 285.4021820000412
+    },
+    {
+      "prefix": "Zostawiłem ci notatkę na ",
+      "ground_truth": "lodówce",
+      "level": "word_boundary",
+      "suggestions": [
+        "lodówce",
+        "biurku",
+        "stole"
+      ],
+      "hit": true,
+      "rank": 1,
+      "rank_strict": 1,
+      "rank_partial": 1,
+      "latency_ms": 261.4569400000164
+    },
+    {
+      "prefix": "Poznał",
+      "ground_truth": "am",
+      "level": "mid_word",
+      "suggestions": [
+        "bym/Poznałab",
+        "bym/poznajęby",
+        "bym/poznaję",
+        "bym/poznaję/"
+      ],
+      "hit": false,
+      "rank": 0,
+      "rank_strict": 0,
+      "rank_partial": 0,
+      "latency_ms": 206.26240500001813
+    },
+    {
+      "prefix": "Poznałam wczoraj twoją siostrę, jest naprawdę ",
+      "ground_truth": "bardzo",
+      "level": "word_boundary",
+      "suggestions": [
+        "urocza",
+        "sympatyczna",
+        "cudowna",
+        "wspaniała",
+        "miła"
+      ],
+      "hit": false,
+      "rank": 0,
+      "rank_strict": 0,
+      "rank_partial": 0,
+      "latency_ms": 340.60610699998506
+    },
+    {
+      "prefix": "Postanowiliśmy zmienić plany i wyjechać jedna",
+      "ground_truth": "k",
+      "level": "mid_word",
+      "suggestions": [
+        "ć"
+      ],
+      "hit": false,
+      "rank": 0,
+      "rank_strict": 0,
+      "rank_partial": 0,
+      "latency_ms": 100.53602099998216
+    },
+    {
+      "prefix": "Postanowiliśmy zmienić plany ",
+      "ground_truth": "i",
+      "level": "word_boundary",
+      "suggestions": [
+        "i",
+        "na"
+      ],
+      "hit": true,
+      "rank": 1,
+      "rank_strict": 1,
+      "rank_partial": 1,
+      "latency_ms": 104.94298499997967
+    },
+    {
+      "prefix": "Napisałbym dłużej, ale muszę j",
+      "ground_truth": "uż",
+      "level": "mid_word",
+      "suggestions": [
+        "ść"
+      ],
+      "hit": false,
+      "rank": 0,
+      "rank_strict": 0,
+      "rank_partial": 0,
+      "latency_ms": 123.49005400000124
+    },
+    {
+      "prefix": "Napisałbym dłużej, ale muszę już wychodzić na ",
+      "ground_truth": "spotkanie",
+      "level": "word_boundary",
+      "suggestions": [
+        "spotkanie",
+        "kolację",
+        "spacer"
+      ],
+      "hit": true,
+      "rank": 1,
+      "rank_strict": 1,
+      "rank_partial": 1,
+      "latency_ms": 205.46372500001553
+    },
+    {
+      "prefix": "Zauważyłem, że zostawiłeś włączone światło w salonie na no",
+      "ground_truth": "c",
+      "level": "mid_word",
+      "suggestions": [
+        "ce",
+        "ć"
+      ],
+      "hit": false,
+      "rank": 0,
+      "rank_strict": 0,
+      "rank_partial": 0,
+      "latency_ms": 137.40897699995003
+    },
+    {
+      "prefix": "Zauważyłem, że zostawiłeś włączone ",
+      "ground_truth": "światło",
+      "level": "word_boundary",
+      "suggestions": [
+        "światło",
+        "włącznik"
+      ],
+      "hit": true,
+      "rank": 1,
+      "rank_strict": 1,
+      "rank_partial": 1,
+      "latency_ms": 225.76263900003823
+    },
+    {
+      "prefix": "Ugotowałam ros",
+      "ground_truth": "ół",
+      "level": "mid_word",
+      "suggestions": [
+        "ół"
+      ],
+      "hit": true,
+      "rank": 1,
+      "rank_strict": 1,
+      "rank_partial": 1,
+      "latency_ms": 88.76516200001561
+    },
+    {
+      "prefix": "Ugotowałam rosół, przyjdź na obiad zanim wystygnie ",
+      "ground_truth": "zupełnie",
+      "level": "word_boundary",
+      "suggestions": [],
+      "hit": false,
+      "rank": 0,
+      "rank_strict": 0,
+      "rank_partial": 0,
+      "latency_ms": 52.26770300004091
+    },
+    {
+      "prefix": "Sprzedałem wresz",
+      "ground_truth": "cie",
+      "level": "mid_word",
+      "suggestions": [
+        "cie"
+      ],
+      "hit": true,
+      "rank": 1,
+      "rank_strict": 1,
+      "rank_partial": 1,
+      "latency_ms": 91.82368099999394
+    },
+    {
+      "prefix": "Sprzedałem wreszcie stary samochód, kupujący odebrał go ",
+      "ground_truth": "wczoraj",
+      "level": "word_boundary",
+      "suggestions": [
+        "dzisiaj",
+        "wczoraj",
+        "dziś"
+      ],
+      "hit": true,
+      "rank": 2,
+      "rank_strict": 2,
+      "rank_partial": 2,
+      "latency_ms": 262.978387999965
+    },
+    {
+      "prefix": "Obiecałaś, że pomożesz mi z przeprowadzką w najbliższą s",
+      "ground_truth": "obotę",
+      "level": "mid_word",
+      "suggestions": [
+        "zafę",
+        "zafa",
+        "zafotę"
+      ],
+      "hit": false,
+      "rank": 0,
+      "rank_strict": 0,
+      "rank_partial": 0,
+      "latency_ms": 288.21241899998995
+    },
+    {
+      "prefix": "Obiecałaś, że pomożesz mi z przeprowadzką ",
+      "ground_truth": "w",
+      "level": "word_boundary",
+      "suggestions": [
+        "i",
+        "w"
+      ],
+      "hit": true,
+      "rank": 2,
+      "rank_strict": 2,
+      "rank_partial": 2,
+      "latency_ms": 100.82934799999066
+    },
+    {
+      "prefix": "Wróciliśmy z urlopu wypoczęci, choć podróż powrotna była m",
+      "ground_truth": "ęcząca",
+      "level": "mid_word",
+      "suggestions": [
+        "ętna",
+        "ordercza",
+        "ęcząca",
+        "roźna",
+        "ệtna"
+      ],
+      "hit": true,
+      "rank": 3,
+      "rank_strict": 3,
+      "rank_partial": 3,
+      "latency_ms": 296.7210069999737
+    },
+    {
+      "prefix": "Wróciliśmy z ",
+      "ground_truth": "urlopu",
+      "level": "word_boundary",
+      "suggestions": [
+        "podróży",
+        "wakacji",
+        "wyjazdu"
+      ],
+      "hit": false,
+      "rank": 0,
+      "rank_strict": 0,
+      "rank_partial": 0,
+      "latency_ms": 198.27686700000413
+    },
+    {
+      "prefix": "Zamówiłem części do row",
+      "ground_truth": "eru",
+      "level": "mid_word",
+      "suggestions": [
+        "eru"
+      ],
+      "hit": true,
+      "rank": 1,
+      "rank_strict": 1,
+      "rank_partial": 1,
+      "latency_ms": 92.65989100003935
+    },
+    {
+      "prefix": "Zamówiłem części do roweru, ",
+      "ground_truth": "powinny",
+      "level": "word_boundary",
+      "suggestions": [
+        "które",
+        "ale",
+        "a"
+      ],
+      "hit": false,
+      "rank": 0,
+      "rank_strict": 0,
+      "rank_partial": 0,
+      "latency_ms": 123.86859100001857
+    },
+    {
+      "prefix": "Prze",
+      "ground_truth": "kazałam",
+      "level": "mid_word",
+      "suggestions": [
+        "analizuj",
+        "analizowałem"
+      ],
+      "hit": false,
+      "rank": 0,
+      "rank_strict": 0,
+      "rank_partial": 0,
+      "latency_ms": 204.1886260000183
+    },
+    {
+      "prefix": "Przekazałam twoje pozdrowienia rodzicom, bardzo ",
+      "ground_truth": "się",
+      "level": "word_boundary",
+      "suggestions": [
+        "dziękuję",
+        "dziękuje",
+        "dziękują"
+      ],
+      "hit": false,
+      "rank": 0,
+      "rank_strict": 0,
+      "rank_partial": 0,
+      "latency_ms": 285.76636899998675
+    },
+    {
+      "prefix": "Zainstalowałem n",
+      "ground_truth": "owy",
+      "level": "mid_word",
+      "suggestions": [
+        "ienastawiony",
+        "ienależne",
+        "ienależny"
+      ],
+      "hit": false,
+      "rank": 0,
+      "rank_strict": 0,
+      "rank_partial": 0,
+      "latency_ms": 271.0722950000104
+    },
+    {
+      "prefix": "Zainstalowałem nowy program, ale komputer działa ",
+      "ground_truth": "teraz",
+      "level": "word_boundary",
+      "suggestions": [
+        "wolniej",
+        "wolno"
+      ],
+      "hit": false,
+      "rank": 0,
+      "rank_strict": 0,
+      "rank_partial": 0,
+      "latency_ms": 200.3203269999858
+    },
+    {
+      "prefix": "Zgłosiłbym tę usterkę wcześniej, g",
+      "ground_truth": "dybym",
+      "level": "mid_word",
+      "suggestions": [
+        "dybym",
+        "dyby",
+        "dybyśmy"
+      ],
+      "hit": true,
+      "rank": 1,
+      "rank_strict": 1,
+      "rank_partial": 1,
+      "latency_ms": 225.23235900001737
+    },
+    {
+      "prefix": "Zgłosiłbym tę usterkę wcześniej, gdybym wiedział, że to takie ",
+      "ground_truth": "poważne",
+      "level": "word_boundary",
+      "suggestions": [
+        "skomplikowane",
+        "problematyczne",
+        "poważne",
+        "trudne"
+      ],
+      "hit": true,
+      "rank": 3,
+      "rank_strict": 3,
+      "rank_partial": 3,
+      "latency_ms": 341.6025120000086
+    },
+    {
+      "prefix": "Odwiedziliśmy babcię w niedzielę, była szczęśliwa, że nas wi",
+      "ground_truth": "dzi",
+      "level": "mid_word",
+      "suggestions": [
+        "emy",
+        "ążemy",
+        "ążą"
+      ],
+      "hit": false,
+      "rank": 0,
+      "rank_strict": 0,
+      "rank_partial": 0,
+      "latency_ms": 205.0329959999999
+    },
+    {
+      "prefix": "Odwiedziliśmy babcię w ",
+      "ground_truth": "niedzielę",
+      "level": "word_boundary",
+      "suggestions": [
+        "niedzielę",
+        "czoraj",
+        "sobotę"
+      ],
+      "hit": true,
+      "rank": 1,
+      "rank_strict": 1,
+      "rank_partial": 1,
+      "latency_ms": 198.79469700003938
+    },
+    {
+      "prefix": "Znalazłam idealny prezent dla mamy na zbliżające się urodz",
+      "ground_truth": "iny",
+      "level": "mid_word",
+      "suggestions": [
+        "iny"
+      ],
+      "hit": true,
+      "rank": 1,
+      "rank_strict": 1,
+      "rank_partial": 1,
+      "latency_ms": 134.0098180000382
+    },
+    {
+      "prefix": "Znalazłam idealny prezent ",
+      "ground_truth": "dla",
+      "level": "word_boundary",
+      "suggestions": [
+        "dla"
+      ],
+      "hit": true,
+      "rank": 1,
+      "rank_strict": 1,
+      "rank_partial": 1,
+      "latency_ms": 70.34761699998171
+    },
+    {
+      "prefix": "Podpisaliśmy wreszcie umowę, wszystko poszło ",
+      "ground_truth": "zaskakująco",
+      "level": "word_boundary",
+      "suggestions": [
+        "gładko",
+        "zgodnie",
+        "pomyślnie"
+      ],
+      "hit": false,
+      "rank": 0,
+      "rank_strict": 0,
+      "rank_partial": 0,
+      "latency_ms": 376.6158619999942
+    },
+    {
+      "prefix": "Zaparzyłem herbatę, usiądź proszę i opowiedz, jak mi",
+      "ground_truth": "nął",
+      "level": "mid_word",
+      "suggestions": [
+        "ło"
+      ],
+      "hit": false,
+      "rank": 0,
+      "rank_strict": 0,
+      "rank_partial": 0,
+      "latency_ms": 120.10658200000535
+    },
+    {
+      "prefix": "Zaparzyłem herbatę, usiądź proszę ",
+      "ground_truth": "i",
+      "level": "word_boundary",
+      "suggestions": [
+        "i"
+      ],
+      "hit": true,
+      "rank": 1,
+      "rank_strict": 1,
+      "rank_partial": 1,
+      "latency_ms": 101.24724799999285
+    },
+    {
+      "prefix": "Wypożyczyłem ci ładowarkę, oddaj ją, kiedy będziesz mi",
+      "ground_truth": "ał",
+      "level": "mid_word",
+      "suggestions": [],
+      "hit": false,
+      "rank": 0,
+      "rank_strict": 0,
+      "rank_partial": 0,
+      "latency_ms": 51.44817399997237
+    },
+    {
+      "prefix": "Wypożyczyłem ci ładowarkę, oddaj ją, kiedy będziesz ",
+      "ground_truth": "miał",
+      "level": "word_boundary",
+      "suggestions": [
+        "gotowy",
+        "gotów",
+        "skończył",
+        "jej"
+      ],
+      "hit": false,
+      "rank": 0,
+      "rank_strict": 0,
+      "rank_partial": 0,
+      "latency_ms": 269.3722949999824
+    },
+    {
+      "prefix": "Przebiegłem dzisiaj dziesięć kilometrów, czuję si",
+      "ground_truth": "ę",
+      "level": "mid_word",
+      "suggestions": [
+        "łę"
+      ],
+      "hit": false,
+      "rank": 0,
+      "rank_strict": 0,
+      "rank_partial": 0,
+      "latency_ms": 134.50368799999524
+    },
+    {
+      "prefix": "Przebiegłem dzisiaj dziesięć kilometrów, czuję ",
+      "ground_truth": "się",
+      "level": "word_boundary",
+      "suggestions": [
+        "się"
+      ],
+      "hit": true,
+      "rank": 1,
+      "rank_strict": 1,
+      "rank_partial": 1,
+      "latency_ms": 132.71023800001558
+    },
+    {
+      "prefix": "Zamknęłam okna przed wy",
+      "ground_truth": "jściem",
+      "level": "mid_word",
+      "suggestions": [
+        "cieczką",
+        "łaniającym",
+        "łaniającą",
+        "ciem"
+      ],
+      "hit": false,
+      "rank": 0,
+      "rank_strict": 0,
+      "rank_partial": 0,
+      "latency_ms": 317.3235300000101
+    },
+    {
+      "prefix": "Zamknęłam okna ",
+      "ground_truth": "przed",
+      "level": "word_boundary",
+      "suggestions": [
+        "i"
+      ],
+      "hit": false,
+      "rank": 0,
+      "rank_strict": 0,
+      "rank_partial": 0,
+      "latency_ms": 72.60237700000971
+    },
+    {
+      "prefix": "Przesłałem z",
+      "ground_truth": "djęcia",
+      "level": "mid_word",
+      "suggestions": [
+        "rzut",
+        "aufaną",
+        "aufane",
+        "aufany"
+      ],
+      "hit": false,
+      "rank": 0,
+      "rank_strict": 0,
+      "rank_partial": 0,
+      "latency_ms": 141.30456599997387
+    },
+    {
+      "prefix": "Przesłałem zdjęcia z wesela, są w ",
+      "ground_truth": "folderze",
+      "level": "word_boundary",
+      "suggestions": [
+        "folderze",
+        "dobrej",
+        "dobrym",
+        "świetnej"
+      ],
+      "hit": true,
+      "rank": 1,
+      "rank_strict": 1,
+      "rank_partial": 1,
+      "latency_ms": 214.12455199998703
+    },
+    {
+      "prefix": "Wola",
+      "ground_truth": "łabym",
+      "level": "mid_word",
+      "suggestions": [],
+      "hit": false,
+      "rank": 0,
+      "rank_strict": 0,
+      "rank_partial": 0,
+      "latency_ms": 17.19663500000479
+    },
+    {
+      "prefix": "Wolałabym spotkać się rano, ",
+      "ground_truth": "po",
+      "level": "word_boundary",
+      "suggestions": [
+        "jeśli",
+        "bo",
+        "ponieważ"
+      ],
+      "hit": false,
+      "rank": 0,
+      "rank_strict": 0,
+      "rank_partial": 0,
+      "latency_ms": 133.37724699999853
+    },
+    {
+      "prefix": "Na",
+      "ground_truth": "prawiłam",
+      "level": "mid_word",
+      "suggestions": [],
+      "hit": false,
+      "rank": 0,
+      "rank_strict": 0,
+      "rank_partial": 0,
+      "latency_ms": 16.560695000009673
+    },
+    {
+      "prefix": "Naprawiłam rower, teraz hamulce działają tak ",
+      "ground_truth": "jak",
+      "level": "word_boundary",
+      "suggestions": [
+        "jak",
+        "to",
+        "dobrze"
+      ],
+      "hit": true,
+      "rank": 1,
+      "rank_strict": 1,
+      "rank_partial": 1,
+      "latency_ms": 123.52940100004162
+    },
+    {
+      "prefix": "Zost",
+      "ground_truth": "awiłbym",
+      "level": "mid_word",
+      "suggestions": [
+        "aw",
+        "awmymymymymy",
+        "awmymymymyy",
+        "awmymymymy"
+      ],
+      "hit": false,
+      "rank": 0,
+      "rank_strict": 0,
+      "rank_partial": 0,
+      "latency_ms": 148.821033000047
+    },
+    {
+      "prefix": "Zostawiłbym auto ",
+      "ground_truth": "w",
+      "level": "word_boundary",
+      "suggestions": [
+        "w",
+        "na"
+      ],
+      "hit": true,
+      "rank": 1,
+      "rank_strict": 1,
+      "rank_partial": 1,
+      "latency_ms": 72.36448800000517
+    },
+    {
+      "prefix": "Ugościl",
+      "ground_truth": "i",
+      "level": "mid_word",
+      "suggestions": [
+        "nictwo",
+        "nia"
+      ],
+      "hit": false,
+      "rank": 0,
+      "rank_strict": 0,
+      "rank_partial": 0,
+      "latency_ms": 96.9063789999609
+    },
+    {
+      "prefix": "Ugościli nas wspaniale, ",
+      "ground_truth": "wyjechaliśmy",
+      "level": "word_boundary",
+      "suggestions": [
+        "czuliśmy",
+        "a",
+        "obsługa",
+        "bardzo"
+      ],
+      "hit": false,
+      "rank": 0,
+      "rank_strict": 0,
+      "rank_partial": 0,
+      "latency_ms": 230.35149700001512
+    },
+    {
+      "prefix": "Odło",
+      "ground_truth": "żyłem",
+      "level": "mid_word",
+      "suggestions": [
+        "że",
+        "ża",
+        "żeń"
+      ],
+      "hit": false,
+      "rank": 0,
+      "rank_strict": 0,
+      "rank_partial": 0,
+      "latency_ms": 71.7375280000283
+    },
+    {
+      "prefix": "Odłożyłem trochę pieniędzy, ",
+      "ground_truth": "chciałbym",
+      "level": "word_boundary",
+      "suggestions": [
+        "i",
+        "a",
+        "żeby"
+      ],
+      "hit": false,
+      "rank": 0,
+      "rank_strict": 0,
+      "rank_partial": 0,
+      "latency_ms": 93.42894000002389
+    },
+    {
+      "prefix": "Przeczytałam twój artykuł, jest naprawdę dobrze napisany i prze",
+      "ground_truth": "myślany",
+      "level": "mid_word",
+      "suggestions": [
+        "jrzałam",
+        "pełniony",
+        "ze",
+        "analizowany"
+      ],
+      "hit": false,
+      "rank": 0,
+      "rank_strict": 0,
+      "rank_partial": 0,
+      "latency_ms": 289.48957900001915
+    },
+    {
+      "prefix": "Przeczytałam twój artykuł, ",
+      "ground_truth": "jest",
+      "level": "word_boundary",
+      "suggestions": [
+        "byłem",
+        "był",
+        "bardzo",
+        "który"
+      ],
+      "hit": false,
+      "rank": 0,
+      "rank_strict": 0,
+      "rank_partial": 0,
+      "latency_ms": 174.63878500001329
+    },
+    {
+      "prefix": "Spóźnię się kwadrans, utknąłem niestety w potwornym korku na obwo",
+      "ground_truth": "dnicy",
+      "level": "mid_word",
+      "suggestions": [
+        "żnej",
+        "źnej",
+        "żni",
+        "żninie"
+      ],
+      "hit": false,
+      "rank": 0,
+      "rank_strict": 0,
+      "rank_partial": 0,
+      "latency_ms": 288.54952899996533
+    },
+    {
+      "prefix": "Spóźnię się kwadrans, utknąłem niestety w potwornym korku ",
+      "ground_truth": "na",
+      "level": "word_boundary",
+      "suggestions": [
+        "na"
+      ],
+      "hit": true,
+      "rank": 1,
+      "rank_strict": 1,
+      "rank_partial": 1,
+      "latency_ms": 103.14704799998253
+    },
+    {
+      "prefix": "Wybraliśmy nazwę dla firmy, teraz zostaje ty",
+      "ground_truth": "lko",
+      "level": "mid_word",
+      "suggestions": [
+        "ł"
+      ],
+      "hit": false,
+      "rank": 0,
+      "rank_strict": 0,
+      "rank_partial": 0,
+      "latency_ms": 100.66748799999914
+    },
+    {
+      "prefix": "Wybraliśmy ",
+      "ground_truth": "nazwę",
+      "level": "word_boundary",
+      "suggestions": [
+        "opcję",
+        "dla",
+        "drogę",
+        "najlepsze"
+      ],
+      "hit": false,
+      "rank": 0,
+      "rank_strict": 0,
+      "rank_partial": 0,
+      "latency_ms": 127.35233999995899
+    },
+    {
+      "prefix": "Pomalowałem ścia",
+      "ground_truth": "nę",
+      "level": "mid_word",
+      "suggestions": [
+        "ć"
+      ],
+      "hit": false,
+      "rank": 0,
+      "rank_strict": 0,
+      "rank_partial": 0,
+      "latency_ms": 70.90150800001993
+    },
+    {
+      "prefix": "Pomalowałem ścianę w pokoju, kolor wyszedł ",
+      "ground_truth": "dokładnie",
+      "level": "word_boundary",
+      "suggestions": [
+        "trochę",
+        "inny",
+        "nie"
+      ],
+      "hit": false,
+      "rank": 0,
+      "rank_strict": 0,
+      "rank_partial": 0,
+      "latency_ms": 132.11567799999102
+    },
+    {
+      "prefix": "Zamroziłam resztę zupy, odgrzej",
+      "ground_truth": "emy",
+      "level": "mid_word",
+      "suggestions": [
+        "ę"
+      ],
+      "hit": false,
+      "rank": 0,
+      "rank_strict": 0,
+      "rank_partial": 0,
+      "latency_ms": 124.2426510000314
+    },
+    {
+      "prefix": "Zamroziłam resztę zupy, odgrzejemy ją sobie w środku ",
+      "ground_truth": "tygodnia",
+      "level": "word_boundary",
+      "suggestions": [
+        "tygodnia",
+        "zimy"
+      ],
+      "hit": true,
+      "rank": 1,
+      "rank_strict": 1,
+      "rank_partial": 1,
+      "latency_ms": 227.27486799999497
+    },
+    {
+      "prefix": "Zapisałem się na kurs hiszpańskiego, zajęcia startują od p",
+      "ground_truth": "aździernika",
+      "level": "mid_word",
+      "suggestions": [
+        "iosenki"
+      ],
+      "hit": false,
+      "rank": 0,
+      "rank_strict": 0,
+      "rank_partial": 0,
+      "latency_ms": 239.36946499998157
+    },
+    {
+      "prefix": "Zapisałem się ",
+      "ground_truth": "na",
+      "level": "word_boundary",
+      "suggestions": [
+        "na"
+      ],
+      "hit": true,
+      "rank": 1,
+      "rank_strict": 1,
+      "rank_partial": 1,
+      "latency_ms": 70.25178800000731
+    },
+    {
+      "prefix": "Przywio",
+      "ground_truth": "złem",
+      "level": "mid_word",
+      "suggestions": [
+        "ź",
+        "z",
+        "zę"
+      ],
+      "hit": false,
+      "rank": 0,
+      "rank_strict": 0,
+      "rank_partial": 0,
+      "latency_ms": 124.82832000000599
+    },
+    {
+      "prefix": "Przywiozłem pamiątki z podróży, rozdam je ",
+      "ground_truth": "wszystkim",
+      "level": "word_boundary",
+      "suggestions": [
+        "przyjaciołom",
+        "znajomym",
+        "bliskim"
+      ],
+      "hit": false,
+      "rank": 0,
+      "rank_strict": 0,
+      "rank_partial": 0,
+      "latency_ms": 332.39730500002906
+    },
+    {
+      "prefix": "Uszyłam za",
+      "ground_truth": "słony",
+      "level": "mid_word",
+      "suggestions": [
+        "ćmę",
+        "šivku",
+        "šis"
+      ],
+      "hit": false,
+      "rank": 0,
+      "rank_strict": 0,
+      "rank_partial": 0,
+      "latency_ms": 192.97369999998182
+    },
+    {
+      "prefix": "Uszyłam zasłony do sypialni, ",
+      "ground_truth": "pasują",
+      "level": "word_boundary",
+      "suggestions": [
+        "a",
+        "które",
+        "ale",
+        "i"
+      ],
+      "hit": false,
+      "rank": 0,
+      "rank_strict": 0,
+      "rank_partial": 0,
+      "latency_ms": 131.95977800000946
+    },
+    {
+      "prefix": "Wymieniłem opony na zimowe, zrobi",
+      "ground_truth": "ło",
+      "level": "mid_word",
+      "suggestions": [
+        "łem"
+      ],
+      "hit": false,
+      "rank": 0,
+      "rank_strict": 0,
+      "rank_partial": 0,
+      "latency_ms": 132.0630380000125
+    },
+    {
+      "prefix": "Wymieniłem opony na zimowe, zrobiło się ostatnio naprawdę ",
+      "ground_truth": "ślisko",
+      "level": "word_boundary",
+      "suggestions": [
+        "zimno",
+        "mroźno",
+        "chłodno"
+      ],
+      "hit": false,
+      "rank": 0,
+      "rank_strict": 0,
+      "rank_partial": 0,
+      "latency_ms": 341.88962299998593
+    },
+    {
+      "prefix": "Przeprosiłbym go od ",
+      "ground_truth": "razu",
+      "level": "word_boundary",
+      "suggestions": [
+        "razu",
+        "ważnie",
+        "nośnie",
+        "nazwy"
+      ],
+      "hit": true,
+      "rank": 1,
+      "rank_strict": 1,
+      "rank_partial": 1,
+      "latency_ms": 163.03805799998372
+    },
+    {
+      "prefix": "Odnowiliśmy stary stół, wygląda tera",
+      "ground_truth": "z",
+      "level": "mid_word",
+      "suggestions": [
+        "źniej",
+        "źniejszy"
+      ],
+      "hit": false,
+      "rank": 0,
+      "rank_strict": 0,
+      "rank_partial": 0,
+      "latency_ms": 241.48060400000304
+    },
+    {
+      "prefix": "Odnowiliśmy stary stół, wygląda ",
+      "ground_truth": "teraz",
+      "level": "word_boundary",
+      "suggestions": [
+        "jak",
+        "teraz"
+      ],
+      "hit": true,
+      "rank": 2,
+      "rank_strict": 2,
+      "rank_partial": 2,
+      "latency_ms": 123.30351100001735
+    },
+    {
+      "prefix": "Zaplanowałam ca",
+      "ground_truth": "łą",
+      "level": "mid_word",
+      "suggestions": [
+        "łą"
+      ],
+      "hit": true,
+      "rank": 1,
+      "rank_strict": 1,
+      "rank_partial": 1,
+      "latency_ms": 90.85794199995689
+    },
+    {
+      "prefix": "Zaplanowałam całą trasę, wystarczy tylko potwierdzić rezerwacje ",
+      "ground_truth": "noclegów",
+      "level": "word_boundary",
+      "suggestions": [
+        "i",
+        "na"
+      ],
+      "hit": false,
+      "rank": 0,
+      "rank_strict": 0,
+      "rank_partial": 0,
+      "latency_ms": 119.06829199995173
+    },
+    {
+      "prefix": "Wysłałem p",
+      "ground_truth": "odanie",
+      "level": "mid_word",
+      "suggestions": [
+        "ismo"
+      ],
+      "hit": false,
+      "rank": 0,
+      "rank_strict": 0,
+      "rank_partial": 0,
+      "latency_ms": 88.56746200001453
+    },
+    {
+      "prefix": "Wysłałem podanie o pracę, czekam teraz na odpowiedź z ",
+      "ground_truth": "działu",
+      "level": "word_boundary",
+      "suggestions": [
+        "rekrutacji",
+        "rekrutera",
+        "firmy",
+        "pracodawcy",
+        "firmą"
+      ],
+      "hit": false,
+      "rank": 0,
+      "rank_strict": 0,
+      "rank_partial": 0,
+      "latency_ms": 328.64231700000346
+    },
+    {
+      "prefix": "Nakarmiłam kota i wyprowadziłam psa, zanim wyszłam z d",
+      "ground_truth": "omu",
+      "level": "mid_word",
+      "suggestions": [
+        "achu",
+        "worku",
+        "zwonkiem",
+        "żungli"
+      ],
+      "hit": false,
+      "rank": 0,
+      "rank_strict": 0,
+      "rank_partial": 0,
+      "latency_ms": 276.34111300000086
+    },
+    {
+      "prefix": "Nakarmiłam kota ",
+      "ground_truth": "i",
+      "level": "word_boundary",
+      "suggestions": [
+        "atakarmiłam",
+        "atkarmiłam"
+      ],
+      "hit": false,
+      "rank": 0,
+      "rank_strict": 0,
+      "rank_partial": 0,
+      "latency_ms": 224.93427899996732
+    },
+    {
+      "prefix": "Skopiowałem pliki na dysk zew",
+      "ground_truth": "nętrzny",
+      "level": "mid_word",
+      "suggestions": [
+        "n",
+        "nany",
+        "nowy",
+        "netny"
+      ],
+      "hit": false,
+      "rank": 0,
+      "rank_strict": 0,
+      "rank_partial": 0,
+      "latency_ms": 200.12194700001373
+    },
+    {
+      "prefix": "Skopiowałem pliki na dysk zewnętrzny, na wszelki ",
+      "ground_truth": "wypadek",
+      "level": "word_boundary",
+      "suggestions": [
+        "wypadek",
+        "przypadek"
+      ],
+      "hit": true,
+      "rank": 1,
+      "rank_strict": 1,
+      "rank_partial": 1,
+      "latency_ms": 204.01370499996574
+    },
+    {
+      "prefix": "Zaproszę też sąsiadów, są naprawdę mili i dawno ich ni",
+      "ground_truth": "e",
+      "level": "mid_word",
+      "suggestions": [
+        "ema",
+        "emiłem",
+        "emiło",
+        "emało"
+      ],
+      "hit": false,
+      "rank": 0,
+      "rank_strict": 0,
+      "rank_partial": 0,
+      "latency_ms": 216.51106199999504
+    },
+    {
+      "prefix": "Zaproszę też sąsiadów, są ",
+      "ground_truth": "naprawdę",
+      "level": "word_boundary",
+      "suggestions": [
+        "siadów",
+        "siedzkie",
+        "siedzką"
+      ],
+      "hit": false,
+      "rank": 0,
+      "rank_strict": 0,
+      "rank_partial": 0,
+      "latency_ms": 343.20447199996806
+    },
+    {
+      "prefix": "Uporządkowałam dokumenty w segregatorach, teraz wszystko łatwo znaj",
+      "ground_truth": "dę",
+      "level": "mid_word",
+      "suggestions": [
+        "dę",
+        "dziesz",
+        "dziecie"
+      ],
+      "hit": true,
+      "rank": 1,
+      "rank_strict": 1,
+      "rank_partial": 1,
+      "latency_ms": 206.81195499997784
+    },
+    {
+      "prefix": "Uporządkowałam ",
+      "ground_truth": "dokumenty",
+      "level": "word_boundary",
+      "suggestions": [
+        "swoje",
+        "sobie",
+        "informacje"
+      ],
+      "hit": false,
+      "rank": 0,
+      "rank_strict": 0,
+      "rank_partial": 0,
+      "latency_ms": 90.494571000022
+    },
+    {
+      "prefix": "Przełożyłbym termin, al",
+      "ground_truth": "e",
+      "level": "mid_word",
+      "suggestions": [
+        "bo",
+        "bowiem"
+      ],
+      "hit": false,
+      "rank": 0,
+      "rank_strict": 0,
+      "rank_partial": 0,
+      "latency_ms": 175.44152499999655
+    },
+    {
+      "prefix": "Przełożyłbym ",
+      "ground_truth": "termin",
+      "level": "word_boundary",
+      "suggestions": [
+        "to",
+        "na",
+        "je"
+      ],
+      "hit": false,
+      "rank": 0,
+      "rank_strict": 0,
+      "rank_partial": 0,
+      "latency_ms": 73.8136070000337
+    },
+    {
+      "prefix": "Zebraliśmy pieniądze na prezent, brakuje jeszcze wkładu od dwó",
+      "ground_truth": "ch",
+      "level": "mid_word",
+      "suggestions": [
+        "rek",
+        "skich",
+        "jech",
+        "jezycznego"
+      ],
+      "hit": false,
+      "rank": 0,
+      "rank_strict": 0,
+      "rank_partial": 0,
+      "latency_ms": 257.2770980000314
+    },
+    {
+      "prefix": "Zebraliśmy pieniądze na prezent, brakuje jeszcze wkładu od ",
+      "ground_truth": "dwóch",
+      "level": "word_boundary",
+      "suggestions": [
+        "kilku",
+        "jednej",
+        "osoby"
+      ],
+      "hit": false,
+      "rank": 0,
+      "rank_strict": 0,
+      "rank_partial": 0,
+      "latency_ms": 121.82487199999059
+    },
+    {
+      "prefix": "Odświeżyłem stronę kilka razy, al",
+      "ground_truth": "e",
+      "level": "mid_word",
+      "suggestions": [
+        "bo",
+        "bowiem"
+      ],
+      "hit": false,
+      "rank": 0,
+      "rank_strict": 0,
+      "rank_partial": 0,
+      "latency_ms": 176.45403500000612
+    },
+    {
+      "prefix": "Odświeżyłem stronę kilka razy, ale płatność wciąż się nie ",
+      "ground_truth": "zaksięgowała",
+      "level": "word_boundary",
+      "suggestions": [
+        "przechodzi",
+        "zatwierdza",
+        "przeładowuje",
+        "powiodła",
+        "powiedzie"
+      ],
+      "hit": false,
+      "rank": 0,
+      "rank_strict": 0,
+      "rank_partial": 0,
+      "latency_ms": 346.6358899999591
+    },
+    {
+      "prefix": "Zabukowałam loty na wrzesień, ceny były wyjątkow",
+      "ground_truth": "o",
+      "level": "mid_word",
+      "suggestions": [
+        "icie",
+        "nej"
+      ],
+      "hit": false,
+      "rank": 0,
+      "rank_strict": 0,
+      "rank_partial": 0,
+      "latency_ms": 134.01615800000855
+    },
+    {
+      "prefix": "Zabukowałam loty ",
+      "ground_truth": "na",
+      "level": "word_boundary",
+      "suggestions": [
+        "i",
+        "na"
+      ],
+      "hit": true,
+      "rank": 2,
+      "rank_strict": 2,
+      "rank_partial": 2,
+      "latency_ms": 72.9476970000178
+    },
+    {
+      "prefix": "Rozpakowałem wszys",
+      "ground_truth": "tkie",
+      "level": "mid_word",
+      "suggestions": [
+        "kie"
+      ],
+      "hit": false,
+      "rank": 0,
+      "rank_strict": 0,
+      "rank_partial": 0,
+      "latency_ms": 90.84597100002156
+    },
+    {
+      "prefix": "Rozpakowałem wszystkie ",
+      "ground_truth": "kartony",
+      "level": "word_boundary",
+      "suggestions": [
+        "kartony",
+        "komponenty",
+        "części",
+        "bilety"
+      ],
+      "hit": true,
+      "rank": 1,
+      "rank_strict": 1,
+      "rank_partial": 1,
+      "latency_ms": 149.17669300001535
+    },
+    {
+      "prefix": "Z",
+      "ground_truth": "głosiłam",
+      "level": "mid_word",
+      "suggestions": [
+        "hongguo",
+        "hong"
+      ],
+      "hit": false,
+      "rank": 0,
+      "rank_strict": 0,
+      "rank_partial": 0,
+      "latency_ms": 49.81673499997896
+    },
+    {
+      "prefix": "Zgłosiłam się na ochotnika, ktoś musiał ",
+      "ground_truth": "w",
+      "level": "word_boundary",
+      "suggestions": [
+        "by",
+        "mi",
+        "mnie"
+      ],
+      "hit": false,
+      "rank": 0,
+      "rank_strict": 0,
+      "rank_partial": 0,
+      "latency_ms": 132.89884799996798
+    },
+    {
+      "prefix": "N",
+      "ground_truth": "aostrzyłem",
+      "level": "mid_word",
+      "suggestions": [],
+      "hit": false,
+      "rank": 0,
+      "rank_strict": 0,
+      "rank_partial": 0,
+      "latency_ms": 16.46742500003029
+    },
+    {
+      "prefix": "Naostrzyłem noże w kuchni, wreszcie kroją tak jak ",
+      "ground_truth": "trzeba",
+      "level": "word_boundary",
+      "suggestions": [
+        "marzyłem",
+        "chcę",
+        "powinny",
+        "należy"
+      ],
+      "hit": false,
+      "rank": 0,
+      "rank_strict": 0,
+      "rank_partial": 0,
+      "latency_ms": 270.7006939999701
+    },
+    {
+      "prefix": "Przymierzyłabym te buty, ale kolejka do przymierz",
+      "ground_truth": "alni",
+      "level": "mid_word",
+      "suggestions": [
+        "alni",
+        "ania"
+      ],
+      "hit": true,
+      "rank": 1,
+      "rank_strict": 1,
+      "rank_partial": 1,
+      "latency_ms": 187.189850999971
+    },
+    {
+      "prefix": "Przymierzyłabym te buty, ",
+      "ground_truth": "ale",
+      "level": "word_boundary",
+      "suggestions": [
+        "aby",
+        "by",
+        "żeby"
+      ],
+      "hit": false,
+      "rank": 0,
+      "rank_strict": 0,
+      "rank_partial": 0,
+      "latency_ms": 122.91300200001842
+    },
+    {
+      "prefix": "Zapłaciłe",
+      "ground_truth": "m",
+      "level": "mid_word",
+      "suggestions": [],
+      "hit": false,
+      "rank": 0,
+      "rank_strict": 0,
+      "rank_partial": 0,
+      "latency_ms": 17.727524000008543
+    },
+    {
+      "prefix": "Zapłaciłem rachunki ",
+      "ground_truth": "na",
+      "level": "word_boundary",
+      "suggestions": [
+        "za",
+        "na",
+        "i"
+      ],
+      "hit": true,
+      "rank": 2,
+      "rank_strict": 2,
+      "rank_partial": 2,
+      "latency_ms": 73.31298700000843
+    },
+    {
+      "prefix": "Odkurzyłam cały d",
+      "ground_truth": "om",
+      "level": "mid_word",
+      "suggestions": [
+        "uszny",
+        "żinsowy"
+      ],
+      "hit": false,
+      "rank": 0,
+      "rank_strict": 0,
+      "rank_partial": 0,
+      "latency_ms": 194.94816899998568
+    },
+    {
+      "prefix": "Odkurzyłam cały ",
+      "ground_truth": "dom",
+      "level": "word_boundary",
+      "suggestions": [
+        "bałagan",
+        "stary"
+      ],
+      "hit": false,
+      "rank": 0,
+      "rank_strict": 0,
+      "rank_partial": 0,
+      "latency_ms": 212.9563529999814
+    },
+    {
+      "prefix": "Zawiozłbym cię na dworzec, gdyb",
+      "ground_truth": "y",
+      "level": "mid_word",
+      "suggestions": [
+        "ylibyśmy",
+        "byś",
+        "ylbyś"
+      ],
+      "hit": false,
+      "rank": 0,
+      "rank_strict": 0,
+      "rank_partial": 0,
+      "latency_ms": 258.1277979999754
+    },
+    {
+      "prefix": "Zawiozłbym cię ",
+      "ground_truth": "na",
+      "level": "word_boundary",
+      "suggestions": [
+        "na",
+        "w"
+      ],
+      "hit": true,
+      "rank": 1,
+      "rank_strict": 1,
+      "rank_partial": 1,
+      "latency_ms": 71.19728800000757
+    },
+    {
+      "prefix": "Skomponowałem playlistę na imprezę, m",
+      "ground_truth": "am",
+      "level": "mid_word",
+      "suggestions": [
+        "ianowicie"
+      ],
+      "hit": false,
+      "rank": 0,
+      "rank_strict": 0,
+      "rank_partial": 0,
+      "latency_ms": 244.56511199997522
+    },
+    {
+      "prefix": "Skomponowałem playlistę na imprezę, mam nadzieję że przypadnie wszystkim do ",
+      "ground_truth": "gustu",
+      "level": "word_boundary",
+      "suggestions": [
+        "gustu",
+        "smaku"
+      ],
+      "hit": true,
+      "rank": 1,
+      "rank_strict": 1,
+      "rank_partial": 1,
+      "latency_ms": 217.00837200000933
+    },
+    {
+      "prefix": "Wyhodow",
+      "ground_truth": "ałam",
+      "level": "mid_word",
+      "suggestions": [
+        "owowowowowow",
+        "owowowowowowo",
+        "owowowowowoow",
+        "owowowowowwow",
+        "owowowowow"
+      ],
+      "hit": false,
+      "rank": 0,
+      "rank_strict": 0,
+      "rank_partial": 0,
+      "latency_ms": 294.6777569999881
+    },
+    {
+      "prefix": "Wyhodowałam pomidory na balkonie, są słodsze niż te ze ",
+      "ground_truth": "sklepu",
+      "level": "word_boundary",
+      "suggestions": [
+        "sklepu",
+        "sklepów"
+      ],
+      "hit": true,
+      "rank": 1,
+      "rank_strict": 1,
+      "rank_partial": 1,
+      "latency_ms": 222.75372000001425
+    },
+    {
+      "prefix": "Przeanalizowaliśmy wyniki, trzeba będzie zmienić tro",
+      "ground_truth": "chę",
+      "level": "mid_word",
+      "suggestions": [
+        "ki",
+        "czki",
+        "jak"
+      ],
+      "hit": false,
+      "rank": 0,
+      "rank_strict": 0,
+      "rank_partial": 0,
+      "latency_ms": 134.14809800002558
+    },
+    {
+      "prefix": "Przeanalizowaliśmy wyniki, ",
+      "ground_truth": "trzeba",
+      "level": "word_boundary",
+      "suggestions": [
+        "aby",
+        "by",
+        "które"
+      ],
+      "hit": false,
+      "rank": 0,
+      "rank_strict": 0,
+      "rank_partial": 0,
+      "latency_ms": 124.3187410000246
+    },
+    {
+      "prefix": "Odzyskałem skasowane pliki, na szczęście miałem wł",
+      "ground_truth": "ączoną",
+      "level": "mid_word",
+      "suggestions": [
+        "amanie"
+      ],
+      "hit": false,
+      "rank": 0,
+      "rank_strict": 0,
+      "rank_partial": 0,
+      "latency_ms": 217.4793709999676
+    },
+    {
+      "prefix": "Odzyskałem skasowane pliki, na szczęście ",
+      "ground_truth": "miałem",
+      "level": "word_boundary",
+      "suggestions": [
+        "miałem",
+        "moje",
+        "były"
+      ],
+      "hit": true,
+      "rank": 1,
+      "rank_strict": 1,
+      "rank_partial": 1,
+      "latency_ms": 174.6933550000449
+    },
+    {
+      "prefix": "Zaszczepiłam psa u weterynarza, na",
+      "ground_truth": "stępna",
+      "level": "mid_word",
+      "suggestions": [],
+      "hit": false,
+      "rank": 0,
+      "rank_strict": 0,
+      "rank_partial": 0,
+      "latency_ms": 50.57101400001329
+    },
+    {
+      "prefix": "Zaszczepiłam psa u weterynarza, następna ",
+      "ground_truth": "wizyta",
+      "level": "word_boundary",
+      "suggestions": [
+        "wizyta",
+        "czynność",
+        "akcja"
+      ],
+      "hit": true,
+      "rank": 1,
+      "rank_strict": 1,
+      "rank_partial": 1,
+      "latency_ms": 218.10879200000954
+    },
+    {
+      "prefix": "Przygotowałbym coś cieplejszego, gdy",
+      "ground_truth": "bym",
+      "level": "mid_word",
+      "suggestions": [
+        "by",
+        "byś"
+      ],
+      "hit": false,
+      "rank": 0,
+      "rank_strict": 0,
+      "rank_partial": 0,
+      "latency_ms": 153.83902100001023
+    },
+    {
+      "prefix": "Przygotowałbym coś ",
+      "ground_truth": "cieplejszego",
+      "level": "word_boundary",
+      "suggestions": [
+        "lekkiego",
+        "klasycznego",
+        "prostego"
+      ],
+      "hit": false,
+      "rank": 0,
+      "rank_strict": 0,
+      "rank_partial": 0,
+      "latency_ms": 176.7987240000366
+    },
+    {
+      "prefix": "Wynajęli",
+      "ground_truth": "śmy",
+      "level": "mid_word",
+      "suggestions": [
+        "śmy"
+      ],
+      "hit": true,
+      "rank": 1,
+      "rank_strict": 1,
+      "rank_partial": 1,
+      "latency_ms": 35.80330899995943
+    },
+    {
+      "prefix": "Wynajęliśmy salę na przyjęcie, mieści ",
+      "ground_truth": "spokojnie",
+      "level": "word_boundary",
+      "suggestions": [
+        "się"
+      ],
+      "hit": false,
+      "rank": 0,
+      "rank_strict": 0,
+      "rank_partial": 0,
+      "latency_ms": 132.51783799995565
+    },
+    {
+      "prefix": "Zredagowałam tekst, usunęłam powtórzenia i po",
+      "ground_truth": "prawiłam",
+      "level": "mid_word",
+      "suggestions": [
+        "łączyłam"
+      ],
+      "hit": false,
+      "rank": 0,
+      "rank_strict": 0,
+      "rank_partial": 0,
+      "latency_ms": 207.08276499999556
+    },
+    {
+      "prefix": "Zredagowałam ",
+      "ground_truth": "tekst",
+      "level": "word_boundary",
+      "suggestions": [
+        "artykuł",
+        "tekst",
+        "ten"
+      ],
+      "hit": true,
+      "rank": 2,
+      "rank_strict": 2,
+      "rank_partial": 2,
+      "latency_ms": 91.03929100001551
+    },
+    {
+      "prefix": "Podłączyłem drukarkę do sieci, ter",
+      "ground_truth": "az",
+      "level": "mid_word",
+      "suggestions": [
+        "eny",
+        "az"
+      ],
+      "hit": true,
+      "rank": 2,
+      "rank_strict": 2,
+      "rank_partial": 2,
+      "latency_ms": 123.40730099998609
+    },
+    {
+      "prefix": "Podłączyłem drukarkę do ",
+      "ground_truth": "sieci",
+      "level": "word_boundary",
+      "suggestions": [
+        "komputera",
+        "mojego"
+      ],
+      "hit": false,
+      "rank": 0,
+      "rank_strict": 0,
+      "rank_partial": 0,
+      "latency_ms": 218.58211099998925
+    },
+    {
+      "prefix": "Rozwiesiłam pranie na ba",
+      "ground_truth": "lkonie",
+      "level": "mid_word",
+      "suggestions": [
+        "łku",
+        "łkunie",
+        "łkunach"
+      ],
+      "hit": false,
+      "rank": 0,
+      "rank_strict": 0,
+      "rank_partial": 0,
+      "latency_ms": 251.05990100001918
+    },
+    {
+      "prefix": "Rozwiesiłam pranie na balkonie, ",
+      "ground_truth": "do",
+      "level": "word_boundary",
+      "suggestions": [
+        "a",
+        "ale"
+      ],
+      "hit": false,
+      "rank": 0,
+      "rank_strict": 0,
+      "rank_partial": 0,
+      "latency_ms": 123.45552099998258
+    },
+    {
+      "prefix": "Zdobyłem bilety na koncert, miejsca mamy bli",
+      "ground_truth": "sko",
+      "level": "mid_word",
+      "suggestions": [
+        "żej",
+        "żko",
+        "ższe"
+      ],
+      "hit": false,
+      "rank": 0,
+      "rank_strict": 0,
+      "rank_partial": 0,
+      "latency_ms": 183.31621300001189
+    },
+    {
+      "prefix": "Zdobyłem bilety na ",
+      "ground_truth": "koncert",
+      "level": "word_boundary",
+      "suggestions": [
+        "koncert",
+        "mecz"
+      ],
+      "hit": true,
+      "rank": 1,
+      "rank_strict": 1,
+      "rank_partial": 1,
+      "latency_ms": 91.53754099997968
+    },
+    {
+      "prefix": "Przekonałabym go bez trudu, gdyby tylko zechciał mnie wysłu",
+      "ground_truth": "chać",
+      "level": "mid_word",
+      "suggestions": [
+        "żyć",
+        "chać"
+      ],
+      "hit": true,
+      "rank": 2,
+      "rank_strict": 2,
+      "rank_partial": 2,
+      "latency_ms": 192.66919900002222
+    },
+    {
+      "prefix": "Przekonałabym ",
+      "ground_truth": "go",
+      "level": "word_boundary",
+      "suggestions": [
+        "kogoś",
+        "go",
+        "do"
+      ],
+      "hit": true,
+      "rank": 2,
+      "rank_strict": 2,
+      "rank_partial": 2,
+      "latency_ms": 172.50148599998738
+    },
+    {
+      "prefix": "Wyczyściłem ekspres do kawy, smakuje teraz zdecydowa",
+      "ground_truth": "nie",
+      "level": "mid_word",
+      "suggestions": [
+        "łem",
+        "wo"
+      ],
+      "hit": false,
+      "rank": 0,
+      "rank_strict": 0,
+      "rank_partial": 0,
+      "latency_ms": 118.44321299997773
+    },
+    {
+      "prefix": "Wyczyściłem ekspres do ",
+      "ground_truth": "kawy",
+      "level": "word_boundary",
+      "suggestions": [
+        "kawy"
+      ],
+      "hit": true,
+      "rank": 1,
+      "rank_strict": 1,
+      "rank_partial": 1,
+      "latency_ms": 167.07203700002538
+    },
+    {
+      "prefix": "Umyłam wsz",
+      "ground_truth": "ystkie",
+      "level": "mid_word",
+      "suggestions": [
+        "yskie",
+        "ędzie"
+      ],
+      "hit": false,
+      "rank": 0,
+      "rank_strict": 0,
+      "rank_partial": 0,
+      "latency_ms": 94.69178000000511
+    },
+    {
+      "prefix": "Umyłam wszystkie okna, do pokoju ",
+      "ground_truth": "wpada",
+      "level": "word_boundary",
+      "suggestions": [
+        "i",
+        "gości"
+      ],
+      "hit": false,
+      "rank": 0,
+      "rank_strict": 0,
+      "rank_partial": 0,
+      "latency_ms": 172.40130599998338
+    },
+    {
+      "prefix": "Zorganizowaliśmy z",
+      "ground_truth": "biórkę",
+      "level": "mid_word",
+      "suggestions": [
+        "organizowaliśmy",
+        "jazd"
+      ],
+      "hit": false,
+      "rank": 0,
+      "rank_strict": 0,
+      "rank_partial": 0,
+      "latency_ms": 138.0185259999962
+    },
+    {
+      "prefix": "Zorganizowaliśmy zbiórkę darów, odzew przeszedł nasze ",
+      "ground_truth": "najśmielsze",
+      "level": "word_boundary",
+      "suggestions": [
+        "oczekiwania",
+        "spodziewane"
+      ],
+      "hit": false,
+      "rank": 0,
+      "rank_strict": 0,
+      "rank_partial": 0,
+      "latency_ms": 342.3318819999963
+    },
+    {
+      "prefix": "Zszedłem na dół po zakupy, potrzebujemy je",
+      "ground_truth": "szcze",
+      "level": "mid_word",
+      "suggestions": [
+        "ść"
+      ],
+      "hit": false,
+      "rank": 0,
+      "rank_strict": 0,
+      "rank_partial": 0,
+      "latency_ms": 100.29986900002541
+    },
+    {
+      "prefix": "Zszedłem na dół po zakupy, ",
+      "ground_truth": "potrzebujemy",
+      "level": "word_boundary",
+      "suggestions": [
+        "a",
+        "zmęczony"
+      ],
+      "hit": false,
+      "rank": 0,
+      "rank_strict": 0,
+      "rank_partial": 0,
+      "latency_ms": 225.63293799998974
+    },
+    {
+      "prefix": "Napełniłam termos gorącą herbatą, przyd",
+      "ground_truth": "a",
+      "level": "mid_word",
+      "suggestions": [
+        "zieliłam",
+        "zielając"
+      ],
+      "hit": false,
+      "rank": 0,
+      "rank_strict": 0,
+      "rank_partial": 0,
+      "latency_ms": 267.06131600002436
+    },
+    {
+      "prefix": "Napełniłam termos gorącą herbatą, ",
+      "ground_truth": "przyda",
+      "level": "word_boundary",
+      "suggestions": [
+        "a",
+        "by"
+      ],
+      "hit": false,
+      "rank": 0,
+      "rank_strict": 0,
+      "rank_partial": 0,
+      "latency_ms": 132.49033800002508
+    },
+    {
+      "prefix": "Przetłumaczyłem instrukcję z angielskiego, teraz montaż pó",
+      "ground_truth": "jdzie",
+      "level": "mid_word",
+      "suggestions": [
+        "jdzie"
+      ],
+      "hit": true,
+      "rank": 1,
+      "rank_strict": 1,
+      "rank_partial": 1,
+      "latency_ms": 209.66370399997913
+    },
+    {
+      "prefix": "Przetłumaczyłem instrukcję z angielskiego, teraz ",
+      "ground_truth": "montaż",
+      "level": "word_boundary",
+      "suggestions": [
+        "chcę",
+        "muszę",
+        "potrzebuję",
+        "chciałbym"
+      ],
+      "hit": false,
+      "rank": 0,
+      "rank_strict": 0,
+      "rank_partial": 0,
+      "latency_ms": 215.0076930000182
+    },
+    {
+      "prefix": "Wypolerowałam srebra przed świętami, błyszczą jak zupełnie no",
+      "ground_truth": "we",
+      "level": "mid_word",
+      "suggestions": [
+        "we",
+        "śne",
+        "owe"
+      ],
+      "hit": true,
+      "rank": 1,
+      "rank_strict": 1,
+      "rank_partial": 1,
+      "latency_ms": 188.1367609999529
+    },
+    {
+      "prefix": "Wypolerowałam srebra przed świętami, błyszczą jak zupełnie ",
+      "ground_truth": "nowe",
+      "level": "word_boundary",
+      "suggestions": [
+        "nowe",
+        "nowo"
+      ],
+      "hit": true,
+      "rank": 1,
+      "rank_strict": 1,
+      "rank_partial": 1,
+      "latency_ms": 204.52035499999965
+    },
+    {
+      "prefix": "Za",
+      "ground_truth": "bezpieczyłem",
+      "level": "mid_word",
+      "suggestions": [],
+      "hit": false,
+      "rank": 0,
+      "rank_strict": 0,
+      "rank_partial": 0,
+      "latency_ms": 16.166104999967956
+    },
+    {
+      "prefix": "Zabezpieczyłem dane hasłem, nikt niepowołany się do ",
+      "ground_truth": "nich",
+      "level": "word_boundary",
+      "suggestions": [
+        "nich",
+        "tego",
+        "niego",
+        "dostępu"
+      ],
+      "hit": true,
+      "rank": 1,
+      "rank_strict": 1,
+      "rank_partial": 1,
+      "latency_ms": 185.34946099998706
+    },
+    {
+      "prefix": "Odprowadziłam dzieci do s",
+      "ground_truth": "zkoły",
+      "level": "mid_word",
+      "suggestions": [
+        "ypialni"
+      ],
+      "hit": false,
+      "rank": 0,
+      "rank_strict": 0,
+      "rank_partial": 0,
+      "latency_ms": 249.34948200001372
+    },
+    {
+      "prefix": "Odprowadziłam ",
+      "ground_truth": "dzieci",
+      "level": "word_boundary",
+      "suggestions": [
+        "клиентов"
+      ],
+      "hit": false,
+      "rank": 0,
+      "rank_strict": 0,
+      "rank_partial": 0,
+      "latency_ms": 69.12468799998805
+    },
+    {
+      "prefix": "Wykręciłbym numer jeszcze raz, ale n",
+      "ground_truth": "ie",
+      "level": "mid_word",
+      "suggestions": [
+        "ikt",
+        "adszedł",
+        "aciągnięcie"
+      ],
+      "hit": false,
+      "rank": 0,
+      "rank_strict": 0,
+      "rank_partial": 0,
+      "latency_ms": 285.75405999998793
+    },
+    {
+      "prefix": "Wykręciłbym numer jeszcze raz, ale ",
+      "ground_truth": "nie",
+      "level": "word_boundary",
+      "suggestions": [
+        "tym",
+        "wiem",
+        "mam",
+        "nie"
+      ],
+      "hit": true,
+      "rank": 4,
+      "rank_strict": 4,
+      "rank_partial": 4,
+      "latency_ms": 124.21876100000873
+    }
+  ]
+}

@@ -1,2 +1,8 @@
 polish_model/
-__pycache__/model.cpython-314.pyc
+
+# Wagi modeli — GGUF ma 5+ GB, nie wolno mu trafić do historii gita
+models/
+*.gguf
+
+__pycache__/
+*.pyc

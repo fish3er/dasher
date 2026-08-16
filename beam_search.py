@@ -12,6 +12,7 @@ z wielu sekwencji), a nie osobnym forward passem per beam.
 from __future__ import annotations
 
 import logging
+import math
 import re
 from typing import NamedTuple
 
@@ -53,7 +54,7 @@ class _Beam(NamedTuple):
 class BeamSearch:
     """Beam search dokańczający bieżące słowo lub przewidujący następne."""
 
-    def __init__(self, gguf_path: str, n_gpu_layers: int = -1) -> None:
+    def __init__(self, gguf_path: str, n_gpu_layers: int = -1, n_batch: int = 512) -> None:
         # Importy lokalne — patrz docstring modułu.
         import llama_cpp
         import numpy as np  # noqa: F401  (sprawdzamy dostępność wcześnie)
@@ -90,9 +91,13 @@ class BeamSearch:
                 model_path=gguf_path,
                 n_gpu_layers=n_gpu_layers,
                 logits_all=False,   # potrzebujemy tylko ostatniego tokenu na krok
-                n_ctx=2048,         # mieści beam_width * długość sekwencji w jednym batchu
-                n_batch=512,        # pojedynczy llama_decode nie może przekroczyć n_batch
-                n_ubatch=512,
+                n_ctx=2048,         # mieści beam_width * długość sekwencji w KV cache
+                # Pojedynczy llama_decode NIE może przekroczyć n_batch tokenów — przy
+                # szerokich beamach to jest wiążący limit, nie n_ctx: batch ma
+                # beam_width * (len(prefix) + krok) tokenów, bo prefix jest re-enkodowany
+                # dla każdego beamu (P1). Nadmiar tnie `_decode_last` na porcje.
+                n_batch=n_batch,
+                n_ubatch=n_batch,
                 verbose=False,
             )
         finally:
@@ -100,6 +105,7 @@ class BeamSearch:
 
         self._eos = self._llama.token_eos()
         self._n_vocab = self._llama.n_vocab()
+        self._n_batch = int(n_batch)  # budżet tokenów na jedno llama_decode
         # Surowy wskaźnik kontekstu + handle pamięci KV (do niskopoziomowego batcha).
         self._ctx = self._llama.ctx
         self._mem = C.llama_get_memory(self._ctx)
@@ -115,10 +121,34 @@ class BeamSearch:
     # API publiczne
     # ------------------------------------------------------------------
 
-    def suggest(self, prefix: str, n: int = 5, beam_width: int = 5) -> list[Suggestion]:
-        """Zwróć do `n` dokończeń `prefix`, posortowanych malejąco po znorm. log-probie."""
+    def suggest(
+        self,
+        prefix: str,
+        n: int = 5,
+        beam_width: int = 5,
+        top_k: int | None = None,
+        top_p: float = 1.0,
+    ) -> list[Suggestion]:
+        """Zwróć do `n` dokończeń `prefix`, posortowanych malejąco po znorm. log-probie.
+
+        Trzy parametry sterują przeszukiwaniem i mierzą RÓŻNE rzeczy:
+
+        * `beam_width` — ile beamów przeżywa krok. To zarazem **twardy sufit liczby
+          zwróconych sugestii**: `_finalize` iteruje po beamach, więc `beam_width < n`
+          sprawia, że `n` jest nieosiągalne niezależnie od jakości modelu.
+        * `top_k` — ile rozwinięć rozważamy per beam na krok (szerokość puli kandydatów).
+          Domyślnie `= beam_width`, co odtwarza zachowanie sprzed rozdzielenia tych ról.
+          Większe `top_k` przy stałym `beam_width` zwiększa różnorodność bez zwiększania
+          kosztu `llama_decode` (koszt to sortowanie, nie forward pass).
+        * `top_p` — nucleus: z posortowanej puli zostaw najkrótszy prefiks o skumulowanym
+          prawdopodobieństwie >= `top_p`. **To przycinanie, nie losowanie** — beam search
+          jest deterministyczny. Powyżej ~0.9 zwykle no-op, bo ogon i tak nie wygrywa
+          rankingu; realny wpływ zaczyna się przy agresywnym p (0.5-0.8).
+        """
         if not prefix:
             return []
+        # top_k domyślnie sprzężone z beam_width — zachowanie zgodne wstecz.
+        n_expansions = beam_width if top_k is None else max(1, int(top_k))
 
         level = LEVEL_WORD_BOUNDARY if prefix[-1].isspace() else LEVEL_MID_WORD
 
@@ -144,7 +174,7 @@ class BeamSearch:
 
             candidates: list[tuple[float, _Beam, int, float]] = []
             for beam, logits in zip(active, logits_list):
-                for tok, lp in self._topk_logprobs(logits, beam_width):
+                for tok, lp in self._nucleus(self._topk_logprobs(logits, n_expansions), top_p):
                     candidates.append((beam.logprob + lp, beam, tok, lp))
 
             # P3: ranking rozwinięć po ZNORMALIZOWANYM skumulowanym log-probie
@@ -180,6 +210,15 @@ class BeamSearch:
 
         return self._finalize(beams, level, n)
 
+    def count_tokens(self, text: str) -> int:
+        """Ile tokenów zajmie `text` jako prefix (z BOS) — do sprawdzania budżetu batcha.
+
+        Batch jednego kroku ma `beam_width * (count_tokens(prefix) + krok)` tokenów,
+        bo prefix jest re-enkodowany dla każdego beamu. Pozwala sprawdzić PRZED
+        ewaluacją, czy dana szerokość beamu zmieści się w `n_batch`.
+        """
+        return len(self._llama.tokenize(text.encode("utf-8"), add_bos=True, special=False))
+
     # ------------------------------------------------------------------
     # Ekstrakcja / ranking
     # ------------------------------------------------------------------
@@ -203,6 +242,26 @@ class BeamSearch:
         if m:
             return stripped[: m.start()], True
         return stripped, False
+
+    @staticmethod
+    def _nucleus(pairs: list[tuple[int, float]], top_p: float) -> list[tuple[int, float]]:
+        """Nucleus (top-p) na POSORTOWANEJ malejąco puli `(token, logprob)`.
+
+        Zostawia najkrótszy prefiks puli o skumulowanym prawdopodobieństwie >= `top_p`.
+        Masa liczona jest po pełnym słowniku, więc gdy pula (już obcięta do `top_k`)
+        nie zbiera `top_p`, zwracamy ją w całości — top_p nigdy nie DODAJE kandydatów.
+        Zawsze zostaje co najmniej jeden, inaczej beam nie miałby jak się rozwinąć.
+        """
+        if top_p >= 1.0 or not pairs:
+            return pairs
+        kept: list[tuple[int, float]] = []
+        cumulative = 0.0
+        for tok, lp in pairs:
+            kept.append((tok, lp))
+            cumulative += math.exp(lp)
+            if cumulative >= top_p:
+                break
+        return kept
 
     @staticmethod
     def _norm_score(beam: _Beam) -> float:
@@ -263,27 +322,49 @@ class BeamSearch:
         return [(int(i), float(logprobs[i])) for i in idx]
 
     def _decode_last(self, sequences: list[list[int]]):
-        """Zdekoduj WSZYSTKIE sekwencje w jednym wywołaniu `llama_decode`, zwróć
+        """Zdekoduj sekwencje (w miarę możliwości jednym `llama_decode`) i zwróć
         logity ich ostatnich tokenów.
 
         Każda sekwencja dostaje własny `seq_id`; KV-cache jest czyszczony przed
         wywołaniem, więc pozycje liczone są od zera per sekwencja. To kluczowa
         optymalizacja: koszt `llama_decode` jest zdominowany przez stały narzut
         wywołania (~kilkanaście ms), więc batchowanie B beamów w 1 wywołaniu zamiast
-        B osobnych daje ~B-krotne przyspieszenie. Warunkiem jest n_seq_max kontekstu
-        >= liczby sekwencji (patrz patch n_seq_max w __init__).
-        """
-        import llama_cpp
-        import numpy as np
+        B osobnych daje ~B-krotne przyspieszenie.
 
-        if len(sequences) > self._ctx_seq_max:
-            # Zabezpieczenie: gdyby ktoś podał beam_width > n_seq_max, batch by się
-            # wywalił (init: invalid seq_id). Dekodujemy wtedy w porcjach.
-            out: list[np.ndarray] = []
-            for i in range(0, len(sequences), self._ctx_seq_max):
-                out.extend(self._decode_batch(sequences[i : i + self._ctx_seq_max]))
-            return out
-        return self._decode_batch(sequences)
+        Batch musi zmieścić się w DWÓCH limitach naraz, inaczej `llama_decode` zwraca -1:
+          * `n_seq_max` kontekstu — liczba sekwencji (patrz patch w __init__),
+          * `n_batch` — liczba TOKENÓW. Ten drugi wiąże wcześniej, niż się wydaje:
+            prefix jest re-enkodowany dla każdego beamu (P1), więc batch rośnie jak
+            beam_width * długość_prefiksu. Dla prefiksu ~50 tokenów i beam_width=12
+            to już ~600 tokenów przy domyślnym n_batch=512.
+        Nadmiar tniemy na porcje: każda sekwencja jest samodzielna (pozycje od zera,
+        KV czyszczony per porcja), więc podział na porcje niczego nie zmienia w wyniku.
+        """
+        chunks: list[list[list[int]]] = []
+        current: list[list[int]] = []
+        current_tokens = 0
+        for seq in sequences:
+            if len(seq) > self._n_batch:
+                raise RuntimeError(
+                    f"Pojedyncza sekwencja ma {len(seq)} tokenów > n_batch={self._n_batch}. "
+                    "Zwiększ n_batch przy tworzeniu BeamSearch albo skróć prefix."
+                )
+            over_seqs = len(current) >= self._ctx_seq_max
+            over_tokens = current_tokens + len(seq) > self._n_batch
+            if current and (over_seqs or over_tokens):
+                chunks.append(current)
+                current, current_tokens = [], 0
+            current.append(seq)
+            current_tokens += len(seq)
+        if current:
+            chunks.append(current)
+
+        if len(chunks) <= 1:
+            return self._decode_batch(sequences)
+        out: list = []
+        for chunk in chunks:
+            out.extend(self._decode_batch(chunk))
+        return out
 
     def _decode_batch(self, sequences: list[list[int]]):
         """Pojedynczy batchowany llama_decode dla <= n_seq_max sekwencji."""

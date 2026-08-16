@@ -59,10 +59,13 @@ class EvalConfig:
     dataset: Path              # plik .txt z korpusem
     gguf: Path                 # ścieżka do modelu Gemma 4 (.gguf)
     n_suggestions: int = 5     # K — liczba zwracanych podpowiedzi / rozmiar top-K metryk
-    beam_width: int = 5        # szerokość beam searcha
+    beam_width: int = 5        # szerokość beam searcha (zarazem sufit liczby sugestii!)
+    top_k: int | None = None   # rozwinięcia na beam; None = sprzężone z beam_width
+    top_p: float = 1.0         # nucleus na puli kandydatów (1.0 = wyłączone)
     results_dir: Path = Path("results")  # katalog na raport JSON
     seed: int = 42             # seed RNG — reprodukowalne punkty cięcia
     n_gpu_layers: int = -1     # ile warstw offloadować na GPU (-1 = wszystkie)
+    n_batch: int = 512         # budżet TOKENÓW na jedno llama_decode (wiąże przy szerokich beamach)
     headline: str = "strict"   # matcher liczony jako headline hit/rank (P4b): strict|partial
     context_sentences: int = 1  # ile poprzedzających zdań wchodzi do prefiksu przed targetem
 
@@ -339,7 +342,10 @@ def evaluate(backend: BeamSearch, cases: list[TestCase], cfg: EvalConfig) -> lis
     # buforów GPU (cold start), co zawyża latencję pierwszych sampli i psuje mean.
     # Odrzucamy wynik — liczy się tylko efekt uboczny (skompilowane shadery, bufory).
     logger.info("Rozgrzewka backendu (odrzucany wynik)...")
-    backend.suggest("Test rozgrzewki ", n=cfg.n_suggestions, beam_width=cfg.beam_width)
+    backend.suggest(
+        "Test rozgrzewki ", n=cfg.n_suggestions, beam_width=cfg.beam_width,
+        top_k=cfg.top_k, top_p=cfg.top_p,
+    )
 
     # Matcher liczony jako headline (P4b) — pozostałe kolumny i tak raportujemy obie.
     headline_matcher = matches_partial if cfg.headline == "partial" else matches_strict
@@ -349,7 +355,10 @@ def evaluate(backend: BeamSearch, cases: list[TestCase], cfg: EvalConfig) -> lis
     for i, case in enumerate(cases, start=1):
         # Zmierz czas ściany pojedynczego wywołania suggest() (to nasza latencja).
         t0 = time.perf_counter()
-        suggestions = backend.suggest(case.prefix, n=cfg.n_suggestions, beam_width=cfg.beam_width)
+        suggestions = backend.suggest(
+            case.prefix, n=cfg.n_suggestions, beam_width=cfg.beam_width,
+            top_k=cfg.top_k, top_p=cfg.top_p,
+        )
         latency_ms = (time.perf_counter() - t0) * 1000.0
 
         # P4a: liczymy oba ranki (strict i partial) niezależnie od headline.
@@ -428,6 +437,8 @@ def write_report(cfg: EvalConfig, overall: dict, by_level: dict, results: list[S
         "dataset": cfg.dataset.name,
         "n_suggestions": cfg.n_suggestions,
         "beam_width": cfg.beam_width,
+        "top_k": cfg.top_k,
+        "top_p": cfg.top_p,
         "seed": cfg.seed,
         "headline": cfg.headline,
         "n_samples": len(results),
@@ -455,11 +466,30 @@ def parse_args(argv: list[str] | None = None) -> EvalConfig:
     )
     parser.add_argument("--gguf", type=Path, required=True, help="Ścieżka do modelu .gguf (Gemma 4)")
     parser.add_argument("--n-suggestions", type=int, default=5, help="Liczba podpowiedzi (K), domyślnie 5")
-    parser.add_argument("--beam-width", type=int, default=5, help="Szerokość beam searcha, domyślnie 5")
+    parser.add_argument(
+        "--beam-width", type=int, default=5,
+        help="Szerokość beam searcha, domyślnie 5. UWAGA: to zarazem sufit liczby "
+             "zwracanych sugestii — beam_width < K sprawia, że Hit@K jest nieosiągalne",
+    )
+    parser.add_argument(
+        "--top-k", type=int, default=None,
+        help="Rozwinięcia rozważane na beam (pula kandydatów). Domyślnie = --beam-width",
+    )
+    parser.add_argument(
+        "--top-p", type=float, default=1.0,
+        help="Nucleus na puli kandydatów: 1.0 = wyłączone. To przycinanie, nie losowanie "
+             "(beam search jest deterministyczny); powyżej ~0.9 zwykle no-op",
+    )
     parser.add_argument("--results-dir", type=Path, default=Path("results"), help="Katalog na raport JSON")
     parser.add_argument("--seed", type=int, default=42, help="Seed RNG dla reprodukowalności splitów")
     parser.add_argument(
         "--n-gpu-layers", type=int, default=-1, help="Warstwy na GPU (-1 = cały model), domyślnie -1"
+    )
+    parser.add_argument(
+        "--n-batch", type=int, default=512,
+        help="Tokeny na jedno llama_decode, domyślnie 512. Batch to beam_width * długość "
+             "prefiksu, więc przy szerokich beamach 512 zmusza do dzielenia na porcje "
+             "(wolniej); 1024-2048 mieści bw=16 w jednym wywołaniu kosztem pamięci GPU",
     )
     parser.add_argument(
         "--headline", choices=("strict", "partial"), default="strict",
@@ -476,9 +506,12 @@ def parse_args(argv: list[str] | None = None) -> EvalConfig:
         gguf=args.gguf,
         n_suggestions=args.n_suggestions,
         beam_width=args.beam_width,
+        top_k=args.top_k,
+        top_p=args.top_p,
         results_dir=args.results_dir,
         seed=args.seed,
         n_gpu_layers=args.n_gpu_layers,
+        n_batch=args.n_batch,
         headline=args.headline,
         context_sentences=args.context_sentences,
     )
@@ -537,7 +570,7 @@ def main(argv: list[str] | None = None) -> None:
         raise SystemExit("Brak test case'ów — czy okna zawierają słowa nadające się do splitu?")
 
     # Ładowanie modelu Gemma 4 (jednorazowo) i przepuszczenie wszystkich case'ów.
-    backend = BeamSearch(str(cfg.gguf), n_gpu_layers=cfg.n_gpu_layers)
+    backend = BeamSearch(str(cfg.gguf), n_gpu_layers=cfg.n_gpu_layers, n_batch=cfg.n_batch)
     results = evaluate(backend, cases, cfg)
 
     # Metryki globalne + w rozbiciu na poziom (mid-word / word-boundary).
