@@ -6,3 +6,12 @@ models/
 
 __pycache__/
 *.pyc
+
+# cache sha256 modelu — lokalny, zależny od mtime pliku
+results/.model_hash_cache.json
+
+# runy smoke to weryfikacja robocza, nie wynik
+results/*_smoke/
+
+# częściowe snapshoty trwającego runu
+results/partial_*/

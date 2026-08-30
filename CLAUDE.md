@@ -14,6 +14,24 @@ main.py          — tkinter UI, zooming alphabet + suggestion panel (NIE RUSZA�
 model.py         — legacy Autocomplete class (NIE RUSZAĆ na razie)
 beam_search.py   — BeamSearch class: Gemma 4 GGUF + dwupoziomowy beam search
 eval.py          — ewaluacja: wczytuje .txt, tworzy test case'y, liczy metryki
+sweep.py         — sweep beam_width x top_k x top_p na wspólnych case'ach (McNemar)
+diagnose.py      — atrybucja trafień + profil czasu z raportów results/eval_*.json
+corpus_profile.py— profil korpusów + skład zadania (bez modelu)
+test_pairs_pl.txt   — korpus ewaluacyjny: bloki zdań o tym samym (pusta linia = granica)
+test_phrases_pl.txt — STARY korpus luźnych zdań, nie używać do ewaluacji kontekstowej
+
+--- ewaluacja v3: kontekst jako zmienna niezależna (2026-08-30) ---
+eval_context.py    — główny run: sweep pozycja x c_len, zapis per_sample.jsonl
+context_sweep.py   — silnik sweepu + CachedBeamSearch (cache prefiksu KV)
+corpus_validator.py— walidacja korpusu, seen-rate, kryteria doboru
+matcher.py         — matchery strict (z eval.py) + lemma (spaCy pl_core_news_sm)
+plot_context.py    — wykresy i report.md z per_sample.jsonl, BEZ modelu
+configs/eval_v3.yaml — wszystkie parametry runu
+corpus_context_pl/ — korpus do E1/E2 (teksty właściciela) + kryteria doboru
+corpus_smoke_pl/   — 1 syntetyczny dokument, żeby --smoke działał zawsze
+predictions_apriori.md — hipotezy zapisane PRZED runem
+README_eval_v3.md  — instrukcja harnessu v3
+
 CLAUDE.md        — ten plik
 ```
 
@@ -49,9 +67,99 @@ top 5 wyników. Stop: spacja, interpunkcja, EOS. Ranking: znormalizowany log-pro
 ## Eval (`eval.py`)
 
 Input: plik `.txt` z polskim tekstem podany przez użytkownika.
-Flow: parsuj zdania → generuj split pointy (mid-word + word-boundary) → beam search → metryki.
+Flow: parsuj bloki → okna (kontekst, target) → split pointy (mid-word + word-boundary)
+→ beam search → metryki.
 Metryki: MRR@K, Hit@1, Hit@K, KSR, latency (mean/p50/p95).
 Output: tabela na stdout + JSON raport.
+
+### Format korpusu — bloki tematyczne (łatwo zepsuć)
+
+Jednostką testową jest **okno zdań mówiących O TYM SAMYM**: N zdań kontekstu + target.
+Predykcja jest wyłącznie w targecie, kontekst wchodzi tylko do prefiksu.
+
+**Powiązanie tematyczne bierze się z BLOKÓW (fragmenty rozdzielone pustą linią),
+nie z sąsiedztwa w pliku.** To nie jest kosmetyka: w korpusie luźnych zdań (jak stary
+`test_phrases_pl.txt` — 114 ze 120 linii to pojedyncze, niepowiązane zdanie) dwie
+kolejne linie mówią o zupełnie różnych sprawach. Parowanie po sąsiedztwie dawało wtedy
+prefix typu „wróciłem do domu" + target „widzimy się jutro pod metrem" — czyli mierzyło
+odporność modelu na MYLĄCY kontekst, a nie korzyść z kontekstu.
+
+- Granica bloku jest twarda — okno nigdy jej nie przekracza (`iter_context_windows`
+  zeruje bufor na każdym bloku).
+- Wewnątrz bloku dalej obowiązuje `MIN_SENTENCE_LEN`; zdanie poniżej progu przerywa
+  ciągłość (zdania po jego obu stronach nie są parowane).
+- Korpus bez pustych linii = jeden wielki blok. To nie błąd składniowy, więc `eval.py`
+  tylko **ostrzega** (`logger.warning`) — ale głośno, bo cicho zaniżałoby wynik.
+- `--context-sentences N` wymaga bloków o ≥ N+1 zdaniach nad progiem. Na obecnym
+  korpusie N=1 daje 122 okna, ale **N=2 tylko 2 okna** (tylko 2 bloki mają 3 zdania) —
+  do sensownego N=2 trzeba dopisać trzecie zdanie do kolejnych bloków.
+
+## Ewaluacja v3 — kontekst jako zmienna niezależna (`eval_context.py`)
+
+Osobny harness od `eval.py`: tam kontekst jest STAŁY (N zdań), tu jest **zmienną
+niezależną**. Mierzy `Hit@1(c_len)` i — co ważniejsze — **dlaczego** rośnie, przez split
+`seen`/`unseen` (czy lemat targetu wystąpił wcześniej w tym samym dokumencie). Rozjazd
+krzywych = profilowanie idiolektu; krzywe równoległe = ogólny zysk z dłuższego kontekstu.
+
+E1 = krzywa po `c_len`. E2 (użyteczność sesyjna) = ta sama krzywa w punkcie `c_len=max`
+— **jeden silnik, nie dwa przebiegi**. KSR poza zakresem tej iteracji.
+
+```
+flatpak-spawn --host python3 corpus_validator.py corpus_context_pl/
+flatpak-spawn --host python3 eval_context.py --config configs/eval_v3.yaml --smoke
+flatpak-spawn --host python3 eval_context.py --config configs/eval_v3.yaml
+flatpak-spawn --host python3 plot_context.py results/<timestamp>_<hash>
+```
+
+Szczegóły w `README_eval_v3.md`. Rzeczy łatwe do zepsucia:
+
+- **`c_len` jest w TOKENACH**, przycinany lewostronnie od początku bieżącego słowa.
+  `immediate_prefix` (wpisany fragment słowa) **nie wlicza się** do `c_len` — inaczej
+  mid-word dostawałby mniej kontekstu niż granica słowa przy tej samej nominalnej wartości.
+- **`c_len_effective` / `c_len_truncated`** — pozycja blisko początku dokumentu nie ma
+  zadanego `c_len`. Bez tego pola prawy ogon krzywej cicho miesza „1000 tokenów kontekstu”
+  z „wszystko, co było”, czyli spłaszcza dokładnie ten fragment, o który chodzi.
+- **`rstrip()` prefiksu na granicy słowa** — ta sama pułapka co w `eval.py`
+  (word_boundary MRR@5 0.000 vs 0.379). Pinowane testem.
+- **Seed steruje WYŁĄCZNIE doborem pozycji** (beam search jest deterministyczny).
+  Stąd ≥8 seedów: w sweepie 2026-08-16 rozrzut między seedami (0.06) był większy
+  niż mierzony efekt konfiguracji (0.012–0.037).
+- **CI = bootstrap klastrowany po pozycji.** Ta sama pozycja przy 12 wartościach `c_len`
+  to obserwacje SKORELOWANE; bootstrap po obserwacjach zawęziłby CI ~3,5-krotnie
+  bez pokrycia w danych (to lekcja z P7 review).
+- **Próbkowanie stratyfikowane po segmencie** (`first_word`/`mid_word`/`later`).
+  Bez tego `mid_word` zalewa próbkę (słowo 7-literowe = 6 pozycji mid-word i 1 granica),
+  a `first_word` — jedyny kubełek z predykcją WYŁĄCZNIE z kontekstu — zostaje bez mocy.
+- **`per_sample.jsonl` trzyma pełne listy sugestii, score'y i flagi `complete`.**
+  Cała re-analiza (inne kubełki, inne CI, inny matcher) idzie bez odpalania modelu.
+
+### Cache prefiksu KV (`CachedBeamSearch`) — to jest warunek wykonalności
+
+`BeamSearch._decode_batch` re-enkoduje cały prefix dla KAŻDEGO beamu na KAŻDYM kroku
+(P1). Zmierzone, `beam_width=5`: prefix 23 tok → 235 ms, 71 → 455 ms, 263 → 1518 ms,
+**1007 → 5203 ms**. Przy 12 punktach `c_len` × kilkuset pozycjach to kilkanaście godzin.
+`CachedBeamSearch` dekoduje prefix raz i odtwarza tylko ogony beamów: **775 ms** przy
+`c_len=1000`.
+
+Dwa tryby (`sweep.kv_mode`), oba zweryfikowane przeciw NIECKOWANEMU `BeamSearch.suggest`
+w `test_cache_equivalence.py`:
+- `multi_seq` (domyślny) — `seq 0` trzyma nietknięty prefix, co krok kopiowany do
+  `seq 1..B` przez `llama_memory_seq_cp`. Kopia zawsze z czystego prefiksu, więc zmiana
+  topologii beamów NIE wymaga re-pointingu cache'u (to jest ta trudna część P1).
+- `sequential` — prefix w `seq 0`, per beam `seq_rm` + odtworzenie ogona (~975 ms).
+- `both` — liczy dwa razy i raportuje zgodność wektorów trafień. Kontrola regresji,
+  NIE podwojenie próbki (agregaty biorą się z trybu pierwszego).
+
+**Pułapka `kv_unified`:** czyszczenie samego `seq 0` przed prefillem zostawia komórki
+sekwencji beamów, przez co następny prefill dostaje inny rozkład pamięci i inną kolejność
+redukcji na GPU. Objaw jest podstępny — te same teksty sugestii, ale inne score'y
+(zmierzone −0.5608 vs −0.6171 dla tego samego prefiksu). Dlatego `_prefill` robi pełny
+`llama_memory_clear`. Pinowane testem `test_cache_survives_repeated_calls...`.
+
+**Znane i zaakceptowane:** dalsze pozycje list (rank 4–5) bywają różne między trybami
+(~11% list) — inny kształt batcha to inna kolejność redukcji zmiennoprzecinkowej.
+`Hit@1` nietknięty. Z tego samego powodu `prefill_reuse` jest domyślnie **wyłączony**:
+przyspiesza, ale uzależnia podział prefillu od historii runu, czyli od czegoś spoza configu.
 
 ## Coding conventions
 - Python 3.11+, type hints.
@@ -59,14 +167,40 @@ Output: tabela na stdout + JSON raport.
 - Config: `argparse` + dataclass.
 - Żadnych hardcodowanych ścieżek.
 
+## Workflow — git
+
+**Claude NIE robi commitów ani pushy.** Commit i push robi wyłącznie właściciel repo.
+
+- **Nie uruchamiać** `git commit` ani `git push` — nigdy, także „na koniec zadania"
+  czy po przejściu testów.
+- Po skończonej zmianie: zostawić pliki zmodyfikowane w drzewie roboczym
+  (co najwyżej `git add`), wypisać krótkie podsumowanie zmian i **proponowany
+  commit message** — decyzję o commicie podejmuje użytkownik.
+- Atrybucja Claude (trailery `Co-Authored-By`, `Claude-Session`, stopki w PR-ach)
+  **nie trafia do commitów ani PR-ów**. Wyłączone globalnie w `~/.claude/settings.json`
+  przez `"attribution": { "commit": "", "pr": "" }`. Nie ustawiać `includeCoAuthoredBy`
+  (deprecated, koliduje z `attribution`).
+- Zasada obowiązuje w kolejnych sesjach. Historyczne commity zostają nietknięte —
+  nie przepisywać ich, żeby usunąć trailery.
+
 ## Stan projektu
 
 Branch `gemma4-beamserach`. Model: `models/google_gemma-4-E4B-it-Q4_K_M.gguf`
 (Gemma 4 E4B, SWA/iSWA KV cache). Runtime: Python 3.14 + llama-cpp-python 0.3.28
 (Vulkan, RX 6800 XT).
 
-Uruchomienie eval:
-`python eval.py --dataset test_phrases_pl.txt --gguf models/google_gemma-4-E4B-it-Q4_K_M.gguf`
+Uruchomienie (model chodzi TYLKO na hoście — sandbox nie ma `llama_cpp`):
+
+```bash
+GGUF=models/google_gemma-4-E4B-it-Q4_K_M.gguf
+flatpak-spawn --host python3 eval.py --dataset test_pairs_pl.txt --gguf $GGUF
+flatpak-spawn --host python3 sweep.py --dataset test_pairs_pl.txt --gguf $GGUF --n-batch 1024
+flatpak-spawn --host python3 eval_context.py --config configs/eval_v3.yaml   # v3, patrz wyżej
+```
+
+Testy: `python3 -m unittest test_beam_search test_eval_cases test_context_sweep`
+(68, bez modelu) oraz `flatpak-spawn --host python3 -m unittest test_cache_equivalence`
+(4, z modelem).
 
 ### Zrobione (chronologicznie)
 
@@ -113,6 +247,70 @@ Uruchomienie eval:
     pinuje P2/P3/P4a. Zweryfikowano, że test P2 rozróżnia fixed (`['ie','ix']`)
     od pre-fix (`['ie']`). `main.py`/`model.py` — nietknięte.
 
+- **2026-08-09** — Test case = **para zdań o tym samym** (bloki tematyczne).
+  Commit `0d14538` wprowadził okna (kontekst, target), ale wiązał je **sąsiedztwem
+  w pliku**, a `test_phrases_pl.txt` to lista luźnych zdań (114/120 linii = jedno
+  zdanie; par, w których oba zdania przechodzą próg 20 znaków: **0**). Kontekst był
+  więc szumem z innego tematu. Zmiana:
+  - nowy korpus `test_pairs_pl.txt` — **120 bloków** rozdzielonych pustą linią, każdy
+    = zdanie kontekstu + oryginalny target. Wszystkie 120 targetów zachowane, poza
+    dwoma przypadkami z wiodącym krótkim fragmentem (`Hej, co słychać?`,
+    `Która sala?`), który stojąc MIĘDZY kontekstem a targetem zerowałby ciągłość —
+    fragment usunięty, sens przeniesiony do zdania kontekstowego.
+  - `eval.py`: nowe `parse_blocks()`; `iter_context_windows()` bierze teraz **bloki**
+    i nie przekracza ich granicy; `logger.warning` gdy korpus nie ma pustych linii.
+  - `test_eval_cases.py`: klasa `TestTopicBlocks` pinuje twardą granicę bloku
+    (m.in. „ostatnie zdanie bloku NIE paruje się z pierwszym zdaniem następnego”).
+    Razem **38 testów** (`test_eval_cases` + `test_beam_search`), wszystkie zielone.
+  - Skala: 120 bloków → **122 okna → 242 case'y** (było 40). `--context-sentences 2`
+    daje na tym korpusie tylko 2 okna — patrz uwaga w sekcji „Format korpusu”.
+  - **Metryki nadal nie przeliczone** (brak llama-cpp w środowisku roboczym).
+    Stare raporty w `results/` dotyczą innego korpusu i innego parowania —
+    **nieporównywalne, także w agregatach**.
+
+- **2026-08-16** — Sweep `beam_width` × `top_k` × `top_p`, 8 konfiguracji na
+  identycznych 242 case'ach. **Pierwszy pomiar tego projektu na REALNYM modelu**
+  (`flatpak-spawn --host`, Python 3.14.3 + llama-cpp-python 0.3.28, Vulkan).
+  Pełne omówienie: `results/sweep_2026-08-16.md`. Najważniejsze:
+  - `beam_width` > 8 **nie kupuje ani jednego trafienia** (Hit@5s = 0.368 dla bw 8/12/16),
+    a Hit@1 monotonicznie SPADA (0.269 → 0.252) — zysk idzie wyłącznie z rang 3–5.
+  - `top_k` nie rusza metryk, ale usuwa PUSTE listy sugestii (mid_word 10% → 4%).
+  - `top_p=0.8` szkodzi na każdej metryce. **Zostawić `top_p=1.0`.**
+  - `mid_word` niewrażliwy na wszystkie trzy parametry; `first_word` = **0.000
+    w ośmiu konfiguracjach z rzędu** (N=15) — to nie jest problem przeszukiwania.
+  - **Efekt konfiguracji < szum seedów**: baseline przesuwa się o 0.06 między
+    seedami, różnice configów to 0.012–0.037. Dwa testy sparowane dają sprzeczne
+    odpowiedzi (p=0.375 vs p=0.012).
+  - Rekomendacja: `beam_width=5, top_k=16, top_p=1.0`.
+  - Naprawiony po drodze blocker: `_decode_last` tnie batch po budżecie TOKENÓW,
+    nie tylko po liczbie sekwencji (bez tego 4 z 8 configów wywalały `llama_decode -1`).
+
+- **2026-08-30** — **Ewaluacja v3: kontekst jako zmienna niezależna.** Nowy harness
+  (`eval_context.py`, `context_sweep.py`, `corpus_validator.py`, `matcher.py`,
+  `plot_context.py`, `configs/eval_v3.yaml`) — opis w sekcji „Ewaluacja v3” wyżej
+  i w `README_eval_v3.md`.
+  - **Cache prefiksu KV** (`CachedBeamSearch`) — częściowe P1, ograniczone do nowego
+    harnessu. 5203 → **775 ms** przy `c_len=1000`. `eval.py` i `sweep.py` chodzą dalej
+    po nieckowanej ścieżce, więc ich wyniki zostają porównywalne.
+  - `beam_search.py`: dołożone `n_ctx` i `seed` jako parametry `__init__`
+    (domyślne = dotychczasowe zachowanie). **Regresja sprawdzona:** `eval.py` na
+    `test_pairs_pl.txt` odtwarza baseline z 2026-08-16 **co do cyfry**
+    (MRR@5s 0.306, Hit@1 0.269, Hit@5s 0.355, KSR 0.248, N=242).
+  - Znaleziony i naprawiony **brak determinizmu** `multi_seq` przy `kv_unified`
+    (ten sam prefix → inne score'y). Wykryła to dopiero kontrola `--kv-mode both`.
+  - Testy: `test_context_sweep.py` (19, bez modelu) + `test_cache_equivalence.py`
+    (4, z modelem, przeciw nieckowanemu `BeamSearch`). Razem **68 bez modelu**, zielone.
+  - **Pełny run NIE wykonany** — `corpus_context_pl/` czeka na teksty właściciela
+    (kryteria doboru w `corpus_context_pl/README.md`). Zweryfikowane smoke'iem na
+    `corpus_smoke_pl/`.
+  - Dwa defekty pomiarowe znalezione, **świadomie NIE naprawione** (siedzą
+    w `beam_search.py`, więc dotyczą też `eval.py` — osobna sprawa, osobny commit):
+    (a) `_BOUNDARY_RE` nie zna `*`, więc markdown modelu instrukcyjnego
+    (`**Podsumowanie`) zajmuje sloty i nigdy nie trafia;
+    (b) na granicy słowa beam potrafi dokańczać wyraz SPRZED kursora
+    (`Dasher` → `owanie`) zamiast zacząć nowy. Fałszywych trafień nie tworzy
+    (strict wymaga `complete`), ale zajmuje sloty.
+
 #### Wyniki (test_phrases_pl.txt, 40 case'ów, 20/poziom — mała próbka!)
 | Config        | MRR@5 | Hit@5 | wb Hit@5 | lat mean | lat p50 |
 |---------------|-------|-------|----------|----------|---------|
@@ -126,28 +324,45 @@ w tej tabeli traktować jako NIEZAUFANE do czasu napraw P2–P5** (matcher/puste
 beamy/warmup — patrz review niżej).
 
 ### Stan obecny
-- Branch `gemma4-beamserach`. Wprowadzone do kodu (2026-07-25): **P5, P2, P3, P4a,
-  P4b** (`beam_search.py` + `eval.py`), `diagnose.py`, `test_beam_search.py`.
-  Nietknięte: **P1** (KV cache), **P6** (Mode B / KSR sesyjny), **P8** (log-softmax),
-  **P9** (`main.py` wciąż importuje `model.py`), **Mode A**, **Limit KS**,
-  porównanie bw 5 vs 10, re-run 12 vs 6.
-- **Delty metryk NIEZWERYFIKOWANE** — środowisko robocze bez llama-cpp/numpy, model
-  się nie ładuje. Zmiany kodu potwierdzone testami jednostkowymi (atrapa), nie
-  re-runem eval. Liczby w tabeli wyników wyżej dalej NIEZAUFANE.
-- `diagnose.py` **istnieje** i działa na JSON-ach z `results/`.
+- Branch `gemma4-beamserach`. Wprowadzone do kodu: **P5, P2, P3, P4a, P4b**
+  (2026-07-25), **bloki tematyczne** (2026-08-09), **sweep + limit tokenów batcha**
+  (2026-08-16), **harness kontekstowy v3 + cache prefiksu KV** (2026-08-30).
+- Nietknięte: **P1 w `eval.py`/`sweep.py`** (cache jest tylko w `CachedBeamSearch`),
+  **P6** (Mode B / KSR sesyjny), **P8** (log-softmax), **P9** (`main.py` wciąż
+  importuje `model.py`), **Mode A**, **Limit KS**, re-run `max_new_tokens` 12 vs 6.
+- **Metryki `eval.py` SĄ zweryfikowane na realnym modelu** od 2026-08-16 i odtworzone
+  2026-08-30: `test_pairs_pl.txt`, 242 case'y, bw=5 → MRR@5s 0.306, Hit@1 0.269,
+  Hit@5s 0.355, KSR 0.248, lat. 234 ms mean / 221 p50. Tabela „Wyniki
+  (test_phrases_pl.txt…)” wyżej dotyczy STAREGO korpusu i jest z tymi liczbami
+  **nieporównywalna** — zostaje wyłącznie jako zapis historii.
+- **Metryki E1/E2 (kontekst) NIE policzone** — brak korpusu, patrz „Następny krok”.
+- Środowisko: sandbox (Python 3.13) **nie ma `llama_cpp`**. Wszystko, co dotyka modelu,
+  idzie przez `flatpak-spawn --host` (Python 3.14.3, llama-cpp-python 0.3.28, Vulkan,
+  RX 6800 XT). Skrypt musi leżeć w ścieżce widocznej dla hosta — `/tmp` sandboxa nie jest.
+- `diagnose.py` i `corpus_profile.py` działają na JSON-ach z `results/` (bez modelu).
 
 ### Następny krok
-1. **Na maszynie z RX 6800 XT**: `python eval.py --dataset test_phrases_pl.txt
-   --gguf models/google_gemma-4-E4B-it-Q4_K_M.gguf` (świeży raport z kolumnami
-   strict/partial + warmupem). Porównać z `results/eval_..._205212.json`:
-   oczekiwane — mid_word puste 4/20 → mniej; więcej wypełnionych slotów (P2);
-   ruch MRR (P3); rozjazd Hit@5 strict↔partial (P4a). **Raport delty; jeśli któraś
-   naprawa nie rusza metryki — powiedzieć to.**
-2. Uruchomić `python diagnose.py --gguf models/...gguf` — atrybucja 1a/1b/1c
-   (puste beamy / dedup) + profil `cProfile` (udział `_topk_logprobs` vs
-   `llama_decode`) → decyzja o P8.
-3. Dalej wg „Kolejność wykonania”: Limit KS → re-run 12 vs 6 → Mode A → bw 5 vs 10
-   (McNemar + bootstrap) → P8 → P1 → Mode B → P9.
+
+1. **BLOKUJĄCE — wrzucić teksty do `corpus_context_pl/`.** Kryteria doboru:
+   `corpus_context_pl/README.md`. Najlepiej własne teksty (praca inż., dłuższe maile,
+   notatki, blog) — tylko wtedy „profilowanie idiolektu” znaczy WŁASNEGO idiolektu.
+   Fallback: jednoautorska proza z Wolnych Lektur. `test_pairs_pl.txt`
+   i `test_phrases_pl.txt` **nie nadają się** (luźne zdania, rejestr czatowy).
+   Potem: `flatpak-spawn --host python3 corpus_validator.py corpus_context_pl/`
+   — lista ostrzeżeń musi być pusta.
+2. **Pełny run E1/E2** wg `README_eval_v3.md` (~7 min na dokument przy domyślnym
+   configu: 20 pozycji × 8 seedów × 12 `c_len`, ~2.6 s/pozycję). Potem
+   `plot_context.py` → wykresy + `report.md`, który sam konfrontuje wynik
+   z `predictions_apriori.md`. **Predykcji nie edytować po runie.**
+3. **Dwa defekty pomiarowe z 2026-08-30** (osobne commity, każdy z deltą metryki
+   na `eval.py`, bo dotyczą wspólnego `beam_search.py`):
+   (a) `_BOUNDARY_RE` bez `*` — markdown modelu instrukcyjnego zajmuje sloty;
+   (b) beam kontynuujący słowo SPRZED kursora na granicy słowa.
+4. **Rozstrzygnąć bw=5 vs bw=8 na ≥8 seedach** — sweep 2026-08-16 tego nie rozstrzygnął
+   (efekt konfiguracji mniejszy niż szum seedów, sprzeczne p na dwóch seedach).
+5. Dalej wg „Kolejność wykonania”: Limit KS → re-run 12 vs 6 → Mode A → P8 →
+   **P1 w `eval.py`/`sweep.py`** (wzorzec gotowy w `context_sweep.CachedBeamSearch`)
+   → Mode B → P9.
 
 ## Code review — 2026-07-11
 

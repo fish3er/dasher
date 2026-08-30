@@ -54,7 +54,14 @@ class _Beam(NamedTuple):
 class BeamSearch:
     """Beam search dokańczający bieżące słowo lub przewidujący następne."""
 
-    def __init__(self, gguf_path: str, n_gpu_layers: int = -1, n_batch: int = 512) -> None:
+    def __init__(
+        self,
+        gguf_path: str,
+        n_gpu_layers: int = -1,
+        n_batch: int = 512,
+        n_ctx: int = 2048,
+        seed: int | None = None,
+    ) -> None:
         # Importy lokalne — patrz docstring modułu.
         import llama_cpp
         import numpy as np  # noqa: F401  (sprawdzamy dostępność wcześnie)
@@ -84,14 +91,24 @@ class BeamSearch:
             params.kv_unified = True  # wspólny bufor KV dla wszystkich sekwencji
             return params
 
-        logger.info("Ładowanie modelu GGUF: %s (n_gpu_layers=%d)", gguf_path, n_gpu_layers)
+        logger.info(
+            "Ładowanie modelu GGUF: %s (n_gpu_layers=%d, n_ctx=%d)",
+            gguf_path, n_gpu_layers, n_ctx,
+        )
         C.llama_context_default_params = _patched_params
+        # `seed` nie wpływa na wynik samego beam searcha (jest deterministyczny — żadnego
+        # losowania), ale ustawiamy go, żeby stan RNG kontekstu był zapisany w configu
+        # runu razem z resztą parametrów.
+        extra = {} if seed is None else {"seed": int(seed)}
         try:
             self._llama = Llama(
                 model_path=gguf_path,
                 n_gpu_layers=n_gpu_layers,
                 logits_all=False,   # potrzebujemy tylko ostatniego tokenu na krok
-                n_ctx=2048,         # mieści beam_width * długość sekwencji w KV cache
+                # Domyślne 2048 mieści beam_width * długość sekwencji w KV cache dla
+                # krótkich prefiksów eval.py. Sweep kontekstowy podaje tu tyle, ile
+                # wymaga najdłuższy c_len — patrz `context_sweep.CachedBeamSearch`.
+                n_ctx=n_ctx,
                 # Pojedynczy llama_decode NIE może przekroczyć n_batch tokenów — przy
                 # szerokich beamach to jest wiążący limit, nie n_ctx: batch ma
                 # beam_width * (len(prefix) + krok) tokenów, bo prefix jest re-enkodowany
@@ -99,6 +116,7 @@ class BeamSearch:
                 n_batch=n_batch,
                 n_ubatch=n_batch,
                 verbose=False,
+                **extra,
             )
         finally:
             C.llama_context_default_params = _orig_params

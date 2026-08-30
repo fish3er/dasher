@@ -1,0 +1,77 @@
+# Ewaluacja Dashera v3 — kontekst jako zmienna niezależna.
+#
+# Wszystko, co wpływa na wynik, jest w tym pliku: run zapisuje jego kopię do
+# results/<timestamp>_<hash>/config_snapshot.yaml, a <hash> to skrót TEGO configu,
+# więc dwa runy z tymi samymi parametrami trafiają do rozróżnialnych katalogów
+# różniących się wyłącznie znacznikiem czasu.
+#
+# Re-run:
+#   flatpak-spawn --host python3 eval_context.py --config configs/eval_v3.yaml --smoke
+#   flatpak-spawn --host python3 eval_context.py --config configs/eval_v3.yaml
+
+model:
+  gguf: models/google_gemma-4-E4B-it-Q4_K_M.gguf
+  n_gpu_layers: -1        # -1 = cały model na GPU (RX 6800 XT, Vulkan)
+  n_batch: 2048           # tokenów na jedno llama_decode; prefill dłuższy jest cięty na porcje
+  # n_ctx MUSI zmieścić najdłuższy c_len + generowane tokeny. 16384 unosi c_len=10000.
+  # Sam kontekst kosztuje VRAM, więc nie ustawiaj go „na zapas" powyżej potrzeb.
+  n_ctx: 16384
+
+corpus:
+  dir: corpus_context_pl
+  # Ile pozycji targetu bierzemy z KAŻDEGO dokumentu na KAŻDY seed.
+  # **0 = WSZYSTKIE** (tryb wyczerpujący) — właściwy przy krótkim, pojedynczym
+  # dokumencie, gdzie losowanie tylko wyrzuca dane. Cache prefiksu czyni to wykonalnym.
+  # Łączna liczba wywołań modelu = pozycje * len(seeds) * len(c_lens).
+  positions_per_doc: 0
+  # Losowanie po równo z segmentów first_word / mid_word / later. Chroni first_word
+  # (jedyny kubełek z predykcją WYŁĄCZNIE z kontekstu) przed zalaniem przez mid_word.
+  # Przy positions_per_doc: 0 BEZPRZEDMIOTOWE — bierzemy wszystko, więc rozkład
+  # segmentów jest naturalnym rozkładem dokumentu (tu: 1672 mid_word / 343 later /
+  # 23 first_word), a nie wyrównanym.
+  stratify_by_segment: true
+  # Pomiń pozycje bliżej niż N znaków od początku dokumentu (0 = nie pomijaj).
+  # Zamiast twardego filtra polegamy na polu c_len_effective w per_sample.jsonl.
+  min_context_chars: 0
+  max_docs: 0             # 0 = wszystkie
+
+sweep:
+  # Siatka długości kontekstu w TOKENACH modelu (nie w znakach, nie w słowach).
+  # Gęsto na dole, bo tam spodziewamy się kolana krzywej; ogon rzadko, bo drogi.
+  #
+  # UCIĘTA DO DŁUGOŚCI KORPUSU. `marek_krakow.txt` ma 785 tokenów, więc punkty 500
+  # i 1000 nie mierzą dłuższego kontekstu, tylko rosnący udział pozycji, którym
+  # kontekstu ZABRAKŁO (obcięte odpowiednio 66% i 100%). Zostawienie ich dawałoby
+  # płaski prawy ogon czytany jak nasycenie modelu, a będący brakiem danych.
+  # Przy dłuższym korpusie dopisz z powrotem 500, 1000 (i 10000 przy ~10k tok. —
+  # wymaga n_ctx >= 10064 i kosztuje ~5 s/pozycję na sam prefill).
+  c_lens: [0, 1, 2, 4, 8, 16, 32, 64, 100, 250]
+
+  # Seed steruje WYŁĄCZNIE doborem pozycji, a beam search jest deterministyczny
+  # (zweryfikowane: ten sam seed dwa razy => 60/60 identycznych sugestii i score'ów).
+  # Przy positions_per_doc: 0 nie ma czego losować, więc kolejne seedy powtarzałyby
+  # ten sam pomiar co do bitu. JEDEN seed.
+  # Wiele seedów ma sens dopiero przy próbkowaniu (positions_per_doc > 0) — wtedy
+  # rozrzut między nimi to szum doboru pozycji (zmierzony: 0.083 Hit@1 na 3 seedach).
+  seeds: [1]
+
+  n_suggestions: 5        # K w Hit@K
+  beam_width: 5           # zarazem twardy sufit liczby zwróconych sugestii
+  top_k: 16               # pula kandydatów na beam; rekomendacja ze sweepu 2026-08-16
+  top_p: 1.0              # nucleus wyłączony — p=0.8 mierzalnie szkodziło
+
+  # multi_seq | sequential | both. `both` liczy WSZYSTKO dwa razy i raportuje zgodność
+  # wektorów trafień — to kontrola regresji cache'u KV, nie podwojenie próbki
+  # (agregaty liczone są z trybu pierwszego).
+  kv_mode: multi_seq
+  # Reużycie wspólnego prefiksu między kolejnymi prefillami. Szybsze, ale podział
+  # prefillu na porcje zaczyna zależeć od HISTORII runu, a nie od samego configu —
+  # czyli kosztem reprodukowalności. Domyślnie wyłączone.
+  prefill_reuse: false
+
+run:
+  results_dir: results
+  latency_cap_ms: 0       # > 0 = loguj ostrzeżenie po przekroczeniu (0 = nie sprawdzaj)
+  bootstrap_iters: 2000   # bootstrap klastrowany po (dokument, słowo)
+  ci_alpha: 0.05          # CI 95%
+  lemma_model: pl_core_news_sm
