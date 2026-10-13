@@ -1,8 +1,10 @@
 import argparse
 import logging
+import math
 import os
 import queue
 import threading
+import time
 import tkinter as tk
 from dataclasses import dataclass
 
@@ -25,6 +27,14 @@ class Config:
     max_prefix_chars: int = 1000
     # Okno 16:9; wysokość wynika z szerokości. Domyślnie 1280x720 (< 1920x1080).
     width: int = 1280
+    # Ruch widoku (redukcja cybersickness). Fizyka liczona w czasie, nie w klatkach,
+    # więc zmiana FPS nie zmienia prędkości. Odświeżanie >= 90 Hz (Kim i in. 2020).
+    fps: int = 90
+    # Stała czasowa wygładzania sterowania [s]: kursor szarpnięty w inne miejsce
+    # nie zmienia prędkości skokowo, tylko dochodzi do niej. 0 = bez wygładzania.
+    smoothing: float = 0.15
+    # Sufit prędkości jako ułamek maksimum (1.0 = bez limitu).
+    max_speed: float = 0.8
 
 
 def ends_with_punct(text: str) -> bool:
@@ -95,6 +105,12 @@ class AIDasher:
         self.elements = []           
         
         self.typed_text = ""
+        self.fps = cfg.fps
+        self.smoothing = cfg.smoothing
+        self.max_speed = cfg.max_speed
+        # Wygładzone sterowanie (dx, dy) i czas poprzedniej klatki.
+        self.vel_x = self.vel_y = 0.0
+        self.last_t = time.perf_counter()
         self.view_min, self.view_max = 0.0, 1.0
         self.history = [] # (text, suggestions, el_low, el_high)
         
@@ -203,6 +219,12 @@ class AIDasher:
             self.fetch_suggestions_in_background()
 
     def update_physics(self):
+        now = time.perf_counter()
+        # Klatki bazowe 60 Hz: przy 60 FPS k = 1 i ruch jest identyczny jak dawniej.
+        # Limit chroni przed skokiem widoku po przycięciu (np. przeciąganie okna).
+        k = min((now - self.last_t) * 60.0, 3.0)
+        self.last_t = now
+
         if self.mouse_x >= self.cross_x:
             dx = (self.mouse_x - self.cross_x) / (self.canvas_w - self.cross_x)
         else:
@@ -210,19 +232,31 @@ class AIDasher:
             dx = (self.mouse_x - self.cross_x) / self.cross_x * 0.6
         raw_dy = (self.mouse_y - self.mid_y) / (self.canvas_h / 2)
         dy = (abs(raw_dy) ** 1.5) * (1 if raw_dy > 0 else -1)
+
+        # Sufit prędkości: ta sama skala dla obu osi, żeby kierunek ruchu się nie zmieniał.
+        mag = math.hypot(dx, dy)
+        if mag > self.max_speed:
+            dx, dy = dx * self.max_speed / mag, dy * self.max_speed / mag
+
+        # Filtr dolnoprzepustowy: wygładzone sterowanie goni cel ze stałą czasową
+        # `smoothing`, niezależnie od FPS.
+        alpha = 1.0 if self.smoothing <= 0 else 1.0 - math.exp(-k / 60.0 / self.smoothing)
+        self.vel_x += (dx - self.vel_x) * alpha
+        self.vel_y += (dy - self.vel_y) * alpha
+        dx, dy = self.vel_x, self.vel_y
         
         zoom_speed = dx * 0.08
         current_range = self.view_max - self.view_min
         
         
-        shift = dy * 0.06 * current_range
+        shift = dy * 0.06 * current_range * k
         self.view_min += shift
         self.view_max += shift
 
   
         if abs(dx) > 0.02:
             center = (self.view_min + self.view_max) / 2
-            new_range = current_range / (1.0 + zoom_speed)
+            new_range = current_range / (1.0 + zoom_speed) ** k
             
 
             if zoom_speed < 0 and new_range > 1.05 and self.history:
@@ -291,11 +325,19 @@ class AIDasher:
                                             anchor="w", font=("Arial", f_size, "bold"))
 
     def run(self):
+        start = time.perf_counter()
         while not self.worker.results.empty():
             self.apply_suggestions(*self.worker.results.get_nowait())
         self.update_physics()
         self.draw_scene()
-        self.root.after(16, self.run)
+        # Tk przerysowuje płótno dopiero w stanie bezczynności. Gdy klatka trwa
+        # dłużej niż okres, timer jest wiecznie zaległy i bezczynności nie ma —
+        # płótno przestaje się odświeżać. Dlatego wymuszamy rysunek tutaj.
+        self.root.update_idletasks()
+        # Czas klatki odejmujemy od okresu — stałe after(16) dawało realnie
+        # ~50 FPS zamiast 60. Minimum 2 ms zostawia pętli czas na zdarzenia.
+        spent_ms = (time.perf_counter() - start) * 1000
+        self.root.after(max(2, round(1000 / self.fps - spent_ms)), self.run)
 
 def parse_args() -> Config:
     defaults = Config(gguf="")
@@ -310,11 +352,23 @@ def parse_args() -> Config:
     p.add_argument("--max-prefix-chars", type=int, default=defaults.max_prefix_chars)
     p.add_argument("--width", type=int, default=defaults.width,
                    help="szerokość okna 16:9 (wysokość = width*9/16), < 1920")
+    p.add_argument("--fps", type=int, default=defaults.fps,
+                   help="docelowa liczba klatek na sekundę (prędkość ruchu od niej nie zależy)")
+    p.add_argument("--smoothing", type=float, default=defaults.smoothing,
+                   help="stała czasowa wygładzania sterowania w sekundach (0 = brak)")
+    p.add_argument("--max-speed", type=float, default=defaults.max_speed,
+                   help="sufit prędkości jako ułamek maksimum, (0, 1] (1 = bez limitu)")
     args = p.parse_args()
     if not args.gguf:
         p.error("podaj --gguf albo ustaw DASHER_GGUF")
     if not 320 <= args.width < 1920:
         p.error("--width musi być w zakresie [320, 1920)")
+    if not 10 <= args.fps <= 240:
+        p.error("--fps musi być w zakresie [10, 240]")
+    if not 0.0 <= args.smoothing <= 2.0:
+        p.error("--smoothing musi być w zakresie [0, 2]")
+    if not 0.0 < args.max_speed <= 1.0:
+        p.error("--max-speed musi być w zakresie (0, 1]")
     return Config(**vars(args))
 
 
