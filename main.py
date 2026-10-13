@@ -25,6 +25,13 @@ class Config:
     max_prefix_chars: int = 1000
     # Okno 16:9; wysokość wynika z szerokości. Domyślnie 1280x720 (< 1920x1080).
     width: int = 1280
+    # Stałe punkty odniesienia (rest frames, redukcja cybersickness): elementy
+    # przyklejone do ekranu, które NIE poruszają się razem z zoomem.
+    # Odstęp siatki w px (0 = bez siatki).
+    grid_spacing: int = 80
+    # Pozioma pozycja celownika jako ułamek szerokości płótna. 0.2 = klasyczny
+    # Dasher; bliżej środka = krótsza droga oko–sugestie, ale szybszy zoom.
+    cross_x: float = 0.2
 
 
 def ends_with_punct(text: str) -> bool:
@@ -95,6 +102,8 @@ class AIDasher:
         self.elements = []           
         
         self.typed_text = ""
+        self.grid_spacing = cfg.grid_spacing
+        self.cross_frac = cfg.cross_x
         self.view_min, self.view_max = 0.0, 1.0
         self.history = [] # (text, suggestions, el_low, el_high)
         
@@ -128,7 +137,7 @@ class AIDasher:
     def set_canvas_size(self, w, h):
         self.canvas_w, self.canvas_h = max(w, 100), max(h, 100)
         # Lewa część płótna (na lewo od krzyżyka) = strefa cofania.
-        self.cross_x = self.canvas_w * 0.2
+        self.cross_x = self.canvas_w * self.cross_frac
         self.mid_y = self.canvas_h / 2
 
     def save_mouse(self, event):
@@ -266,7 +275,6 @@ class AIDasher:
         
 
         self.canvas.create_line(self.cross_x, 0, self.cross_x, self.canvas_h, fill="#DDD")
-        self.canvas.create_line(self.cross_x-20, self.mid_y, self.cross_x+20, self.mid_y, fill="red")
 
         for el in self.elements:
             y_top = (el['low'] - self.view_min) / v_range * self.canvas_h
@@ -290,6 +298,41 @@ class AIDasher:
                     self.canvas.create_text(x_left + 10, (y_top+y_bot)/2, text=txt, 
                                             anchor="w", font=("Arial", f_size, "bold"))
 
+        self.draw_rest_frame()
+
+    def draw_rest_frame(self):
+        """Stały układ odniesienia rysowany NA kafelkach (Cao i in. 2018).
+
+        Kafelki płyną, a siatka, obrys i celownik stoją w miejscu — oko ma się
+        czego „trzymać”. Siatka jest kropkowana, żeby nie zasłaniała liter
+        (stipple gubi 1-pikselowe linie pionowe, dash nie).
+        """
+        w, h = self.canvas_w, self.canvas_h
+        step = self.grid_spacing
+        if step > 0:
+            # Siatka zakotwiczona w celowniku, żeby jedna linia szła przez jego środek.
+            x = self.cross_x % step
+            while x < w:
+                self.canvas.create_line(x, 0, x, h, fill="#666", dash=(1, 3))
+                x += step
+            y = self.mid_y % step
+            while y < h:
+                self.canvas.create_line(0, y, w, y, fill="#666", dash=(1, 3))
+                y += step
+
+        # Obrys przestrzeni roboczej.
+        self.canvas.create_rectangle(3, 3, w - 3, h - 3, outline="#444", width=6)
+
+        # Celownik: pierścień + krzyż z przerwą w środku (środek nie zasłania liter).
+        # Biała obwódka pod czerwienią: celownik widać na każdym kolorze kafelka.
+        cx, cy, r = self.cross_x, self.mid_y, 18
+        arms = ((cx - 2 * r, cy, cx - 6, cy), (cx + 6, cy, cx + 2 * r, cy),
+                (cx, cy - 2 * r, cx, cy - 6), (cx, cy + 6, cx, cy + 2 * r))
+        for color, width in (("white", 5), ("red", 2)):
+            self.canvas.create_oval(cx - r, cy - r, cx + r, cy + r, outline=color, width=width)
+            for arm in arms:
+                self.canvas.create_line(*arm, fill=color, width=width)
+
     def run(self):
         while not self.worker.results.empty():
             self.apply_suggestions(*self.worker.results.get_nowait())
@@ -310,11 +353,19 @@ def parse_args() -> Config:
     p.add_argument("--max-prefix-chars", type=int, default=defaults.max_prefix_chars)
     p.add_argument("--width", type=int, default=defaults.width,
                    help="szerokość okna 16:9 (wysokość = width*9/16), < 1920")
+    p.add_argument("--grid-spacing", type=int, default=defaults.grid_spacing,
+                   help="odstęp stałej siatki odniesienia w px (0 = bez siatki)")
+    p.add_argument("--cross-x", type=float, default=defaults.cross_x,
+                   help="pozycja celownika jako ułamek szerokości (0.2 = klasyczny Dasher)")
     args = p.parse_args()
     if not args.gguf:
         p.error("podaj --gguf albo ustaw DASHER_GGUF")
     if not 320 <= args.width < 1920:
         p.error("--width musi być w zakresie [320, 1920)")
+    if args.grid_spacing < 0:
+        p.error("--grid-spacing nie może być ujemne")
+    if not 0.1 <= args.cross_x <= 0.6:
+        p.error("--cross-x musi być w zakresie [0.1, 0.6]")
     return Config(**vars(args))
 
 
