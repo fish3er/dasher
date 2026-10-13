@@ -1,9 +1,13 @@
 import argparse
+import base64
 import logging
+import math
 import os
 import queue
+import struct
 import threading
 import tkinter as tk
+import zlib
 from dataclasses import dataclass
 
 from beam_search import BeamSearch
@@ -25,6 +29,45 @@ class Config:
     max_prefix_chars: int = 1000
     # Okno 16:9; wysokość wynika z szerokości. Domyślnie 1280x720 (< 1920x1080).
     width: int = 1280
+    # Winieta (redukcja cybersickness): siła przy pełnej prędkości, 0 = wyłączona.
+    # Przy postoju winiety nie ma.
+    vignette: float = 0.6
+
+
+# Winieta jest liczona w niskiej rozdzielczości i powiększana PhotoImage.zoom —
+# generowanie pełnej rozdzielczości w czystym Pythonie trwa ~1 s na poziom.
+VIGNETTE_SCALE = 8
+# Liczba poziomów siły; każdy obraz liczony raz (~10 ms) i trzymany w cache.
+VIGNETTE_LEVELS = 10
+
+
+def vignette_png(w: int, h: int, strength: float) -> bytes:
+    """Eliptyczna winieta RGBA (czarna, przezroczysta w środku) jako PNG.
+
+    Bez PIL: tkinter.PhotoImage czyta PNG z kanałem alfa i płótno go miesza,
+    a stipple (jedyna „przezroczystość” natywnych kształtów) daje szachownicę.
+    Ze wzrostem `strength` przezroczysty środek się kurczy — czyli zawęża się
+    pole widzenia (Fernandes & Feiner).
+    """
+    r_in = 1.0 - 0.5 * strength
+    rows = []
+    for y in range(h):
+        ny = (y + 0.5) / h * 2 - 1
+        row = bytearray(b"\x00")  # filtr PNG: none
+        for x in range(w):
+            nx = (x + 0.5) / w * 2 - 1
+            t = max(0.0, (math.hypot(nx, ny) - r_in) / (1.45 - r_in))
+            row += bytes((0, 0, 0, int(230 * min(1.0, t) ** 1.5)))
+        rows.append(bytes(row))
+
+    def chunk(tag: bytes, data: bytes) -> bytes:
+        return (struct.pack(">I", len(data)) + tag + data
+                + struct.pack(">I", zlib.crc32(tag + data) & 0xFFFFFFFF))
+
+    return (b"\x89PNG\r\n\x1a\n"
+            + chunk(b"IHDR", struct.pack(">IIBBBBB", w, h, 8, 6, 0, 0, 0))
+            + chunk(b"IDAT", zlib.compress(b"".join(rows)))
+            + chunk(b"IEND", b""))
 
 
 def ends_with_punct(text: str) -> bool:
@@ -95,6 +138,10 @@ class AIDasher:
         self.elements = []           
         
         self.typed_text = ""
+        self.vignette = cfg.vignette
+        # Wygładzona prędkość ruchu widoku, 0..1 — steruje winietą.
+        self.speed = 0.0
+        self.vignette_cache: dict[int, tk.PhotoImage] = {}
         self.view_min, self.view_max = 0.0, 1.0
         self.history = [] # (text, suggestions, el_low, el_high)
         
@@ -127,6 +174,7 @@ class AIDasher:
 
     def set_canvas_size(self, w, h):
         self.canvas_w, self.canvas_h = max(w, 100), max(h, 100)
+        self.vignette_cache = {}
         # Lewa część płótna (na lewo od krzyżyka) = strefa cofania.
         self.cross_x = self.canvas_w * 0.2
         self.mid_y = self.canvas_h / 2
@@ -210,6 +258,11 @@ class AIDasher:
             dx = (self.mouse_x - self.cross_x) / self.cross_x * 0.6
         raw_dy = (self.mouse_y - self.mid_y) / (self.canvas_h / 2)
         dy = (abs(raw_dy) ** 1.5) * (1 if raw_dy > 0 else -1)
+
+        # Winieta rośnie i maleje płynnie — skokowa zmiana pola widzenia sama
+        # w sobie jest bodźcem (Fernandes & Feiner: zmiana ma być „subtle”).
+        target = min(1.0, math.hypot(dx if abs(dx) > 0.02 else 0.0, dy))
+        self.speed += (target - self.speed) * 0.1
         
         zoom_speed = dx * 0.08
         current_range = self.view_max - self.view_min
@@ -290,6 +343,22 @@ class AIDasher:
                     self.canvas.create_text(x_left + 10, (y_top+y_bot)/2, text=txt, 
                                             anchor="w", font=("Arial", f_size, "bold"))
 
+        self.draw_vignette()
+
+    def draw_vignette(self):
+        """Przyciemnia brzegi płótna proporcjonalnie do prędkości (brak przy postoju)."""
+        level = round(self.speed * self.vignette * VIGNETTE_LEVELS)
+        if level <= 0:
+            return
+        img = self.vignette_cache.get(level)
+        if img is None:
+            w = -(-self.canvas_w // VIGNETTE_SCALE)
+            h = -(-self.canvas_h // VIGNETTE_SCALE)
+            data = vignette_png(w, h, level / VIGNETTE_LEVELS)
+            img = tk.PhotoImage(data=base64.b64encode(data)).zoom(VIGNETTE_SCALE)
+            self.vignette_cache[level] = img
+        self.canvas.create_image(0, 0, image=img, anchor="nw")
+
     def run(self):
         while not self.worker.results.empty():
             self.apply_suggestions(*self.worker.results.get_nowait())
@@ -310,11 +379,15 @@ def parse_args() -> Config:
     p.add_argument("--max-prefix-chars", type=int, default=defaults.max_prefix_chars)
     p.add_argument("--width", type=int, default=defaults.width,
                    help="szerokość okna 16:9 (wysokość = width*9/16), < 1920")
+    p.add_argument("--vignette", type=float, default=defaults.vignette,
+                   help="siła winiety przy pełnej prędkości, 0..1 (0 = wyłączona)")
     args = p.parse_args()
     if not args.gguf:
         p.error("podaj --gguf albo ustaw DASHER_GGUF")
     if not 320 <= args.width < 1920:
         p.error("--width musi być w zakresie [320, 1920)")
+    if not 0.0 <= args.vignette <= 1.0:
+        p.error("--vignette musi być w zakresie [0, 1]")
     return Config(**vars(args))
 
 
