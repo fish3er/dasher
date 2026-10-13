@@ -27,6 +27,29 @@ class Config:
     width: int = 1280
 
 
+# Stonowana, ciemna paleta (redukcja cybersickness). Stara paleta — sześć
+# nasyconych kolorów na zmianę — przy przewijaniu dawała silnie kontrastowe,
+# migające pasy, czyli mocny bodziec ruchu w peryferiach. Tu sąsiednie kafelki
+# różnią się tylko lekko: litery idą płynnym gradientem, a jasność skacze o kilka %.
+THEME = {
+    "bg_top": "#22252D", "bg_bottom": "#15171C",
+    "entry_bg": "#22252D", "entry_fg": "#E6E6E6",
+    "divider": "#2E323B", "cross": "#D9826A", "outline": "#14161A",
+    "text": "#E8E8E8", "ai": "#3F5A7A",
+    "letters_from": "#4E6E5D", "letters_to": "#5E5470", "special": "#3A3F4A",
+}
+
+
+def lerp_color(c1: str, c2: str, t: float) -> str:
+    a = [int(c1[i:i + 2], 16) for i in (1, 3, 5)]
+    b = [int(c2[i:i + 2], 16) for i in (1, 3, 5)]
+    return "#" + "".join(f"{round(x + (y - x) * t):02X}" for x, y in zip(a, b))
+
+
+def shade(c: str, f: float) -> str:
+    return "#" + "".join(f"{min(255, round(int(c[i:i + 2], 16) * f)):02X}" for i in (1, 3, 5))
+
+
 def ends_with_punct(text: str) -> bool:
     return bool(text) and not text[-1].isspace() and not text[-1].isalnum()
 
@@ -107,10 +130,11 @@ class AIDasher:
         self.entry_var = tk.StringVar()
         # readonly: tekst powstaje wyłącznie z nawigacji, edycja ręczna i tak byłaby nadpisana.
         self.entry = tk.Entry(root, textvariable=self.entry_var, font=("Consolas", 24),
-                              state="readonly")
+                              state="readonly", readonlybackground=THEME["entry_bg"],
+                              fg=THEME["entry_fg"], relief="flat", highlightthickness=0)
         self.entry.pack(side="bottom", fill="x")
 
-        self.canvas = tk.Canvas(root, bg="white", highlightthickness=0)
+        self.canvas = tk.Canvas(root, bg=THEME["bg_bottom"], highlightthickness=0)
         self.canvas.pack(side="top", fill="both", expand=True)
         self.set_canvas_size(win_w, win_h - 50)
         self.canvas.bind("<Configure>", lambda e: self.set_canvas_size(e.width, e.height))
@@ -160,18 +184,23 @@ class AIDasher:
                     'label': typed_word + sug.text,
                     'insert': lead + sug.text + (" " if sug.complete else ""),
                     'low': current_y, 'high': current_y + h_step,
-                    'color': "#D1E8FF", 'is_ai': True
+                    'color': THEME["ai"], 'is_ai': True
                 })
                 current_y += h_step
         
    
         current_y = ai_ratio
         h_step = alp_ratio / len(self.alphabet)
-        colors = ["#FFD700", "#ADFF2F", "#00FFFF", "#FF69B4", "#FFA500", "#1E90FF"]
+        letters = [c for c in self.alphabet if c.isalpha()]
         for i, char in enumerate(self.alphabet):
+            if char.isalpha():
+                t = letters.index(char) / max(1, len(letters) - 1)
+                color = lerp_color(THEME["letters_from"], THEME["letters_to"], t)
+            else:
+                color = THEME["special"]
             new_elements.append({
                 'label': char, 'insert': char, 'low': current_y, 'high': current_y + h_step, 
-                'color': colors[i % len(colors)], 'is_ai': False
+                'color': shade(color, 1.06 if i % 2 else 0.94), 'is_ai': False
             })
             current_y += h_step
             
@@ -265,8 +294,17 @@ class AIDasher:
         v_range = self.view_max - self.view_min
         
 
-        self.canvas.create_line(self.cross_x, 0, self.cross_x, self.canvas_h, fill="#DDD")
-        self.canvas.create_line(self.cross_x-20, self.mid_y, self.cross_x+20, self.mid_y, fill="red")
+        # Tło: statyczny pionowy gradient (nie przewija się z kafelkami).
+        bands = 24
+        band_h = self.canvas_h / bands
+        for i in range(bands):
+            self.canvas.create_rectangle(
+                0, i * band_h, self.canvas_w, (i + 1) * band_h + 1, outline="",
+                fill=lerp_color(THEME["bg_top"], THEME["bg_bottom"], i / (bands - 1)))
+
+        self.canvas.create_line(self.cross_x, 0, self.cross_x, self.canvas_h, fill=THEME["divider"])
+        self.canvas.create_line(self.cross_x-20, self.mid_y, self.cross_x+20, self.mid_y,
+                                fill=THEME["cross"], width=2)
 
         for el in self.elements:
             y_top = (el['low'] - self.view_min) / v_range * self.canvas_h
@@ -281,14 +319,15 @@ class AIDasher:
             x_left = self.cross_x + (1.0 - min(1.0, progress)) * (self.canvas_w - self.cross_x) 
             
             self.canvas.create_rectangle(x_left, y_top, self.canvas_w, y_bot, 
-                                         fill=el['color'], outline="#666")
+                                         fill=el['color'], outline=THEME["outline"])
             
             if h > 10:
                 txt = el['label'].replace(" ", "_")
                 f_size = int(min(h * 0.4, 30 if not el['is_ai'] else 20))
                 if f_size > 6:
                     self.canvas.create_text(x_left + 10, (y_top+y_bot)/2, text=txt, 
-                                            anchor="w", font=("Arial", f_size, "bold"))
+                                            anchor="w", font=("Arial", f_size, "bold"),
+                                            fill=THEME["text"])
 
     def run(self):
         while not self.worker.results.empty():
