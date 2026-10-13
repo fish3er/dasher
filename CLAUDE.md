@@ -10,30 +10,28 @@ Hardware: AMD RX 6800 XT (16 GB VRAM).
 ## Architecture
 
 ```
-main.py          — tkinter UI, zooming alphabet + suggestion panel (NIE RUSZAĆ)
-model.py         — legacy Autocomplete class (NIE RUSZAĆ na razie)
+main.py          — tkinter UI, zooming alphabet + suggestion panel; backend = BeamSearch
 beam_search.py   — BeamSearch class: Gemma 4 GGUF + dwupoziomowy beam search
-eval.py          — ewaluacja: wczytuje .txt, tworzy test case'y, liczy metryki
-sweep.py         — sweep beam_width x top_k x top_p na wspólnych case'ach (McNemar)
-diagnose.py      — atrybucja trafień + profil czasu z raportów results/eval_*.json
-corpus_profile.py— profil korpusów + skład zadania (bez modelu)
-test_pairs_pl.txt   — korpus ewaluacyjny: bloki zdań o tym samym (pusta linia = granica)
-test_phrases_pl.txt — STARY korpus luźnych zdań, nie używać do ewaluacji kontekstowej
-
---- ewaluacja v3: kontekst jako zmienna niezależna (2026-08-30) ---
-eval_context.py    — główny run: sweep pozycja x c_len, zapis per_sample.jsonl
-context_sweep.py   — silnik sweepu + CachedBeamSearch (cache prefiksu KV)
-corpus_validator.py— walidacja korpusu, seen-rate, kryteria doboru
-matcher.py         — matchery strict (z eval.py) + lemma (spaCy pl_core_news_sm)
-plot_context.py    — wykresy i report.md z per_sample.jsonl, BEZ modelu
-configs/eval_v3.yaml — wszystkie parametry runu
-corpus_context_pl/ — korpus do E1/E2 (teksty właściciela) + kryteria doboru
-corpus_smoke_pl/   — 1 syntetyczny dokument, żeby --smoke działał zawsze
-predictions_apriori.md — hipotezy zapisane PRZED runem
-README_eval_v3.md  — instrukcja harnessu v3
-
+model.py         — legacy Autocomplete (HF transformers, gemma-3-1b) — main.py już go NIE używa
 CLAUDE.md        — ten plik
 ```
+
+**Branch `merge_preparation`:** cały harness ewaluacyjny (`eval.py`, `sweep.py`,
+`diagnose.py`, `eval_context.py`, `context_sweep.py`, `matcher.py`, korpusy, `configs/`,
+`results/`, testy `test_*.py`) został USUNIĘTY z tego brancha i żyje dalej na
+`gemma4-beamserach`. Sekcje niżej o ewaluacji/historii dotyczą tamtego brancha.
+
+### UI (`main.py`)
+- `python3 main.py --gguf <plik.gguf>` (albo zmienna `DASHER_GGUF`). Domyślne parametry
+  = rekomendacja sweepu: `beam_width=5, top_k=16, top_p=1.0`, 5 sugestii.
+- Jeden wątek roboczy (`SuggestionWorker`) — kontekst llama nie jest thread-safe;
+  liczy tylko najnowsze żądanie, wynik dla nieaktualnego tekstu jest odrzucany.
+- Mid-word: kafelek pokazuje całe słowo, ale dopisuje tylko dokończenie
+  (+ spacja, gdy `complete`).
+- Do modelu idzie tylko ogon tekstu (`--max-prefix-chars`, domyślnie 1000) — jedna
+  sekwencja musi zmieścić się w `n_batch=512` tokenów.
+- Host (`flatpak-spawn --host`) ma `llama_cpp`, ale NIE ma `tkinter`
+  (`sudo dnf install python3-tkinter`); sandbox nie ma żadnego z nich.
 
 ## Beam search (`beam_search.py`)
 
