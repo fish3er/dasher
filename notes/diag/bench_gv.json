@@ -1,0 +1,93 @@
+{
+ "n_contexts": 120,
+ "c_len": 250,
+ "corpus": "corpus_context_long_pl/wolne_lektury_lalka.txt",
+ "caps": {
+  "8000": {
+   "char_ppl": 3.2802,
+   "mean_logp_true": -1.1879,
+   "p_true_lt_1e-3": 3,
+   "latency_ms": {
+    "mean": 180.63,
+    "p50": 156.87,
+    "p95": 280.59,
+    "n": 120
+   },
+   "rounds_mean": 2.32,
+   "hit_cap": 120
+  },
+  "32000": {
+   "char_ppl": 2.7746,
+   "mean_logp_true": -1.0205,
+   "p_true_lt_1e-3": 3,
+   "latency_ms": {
+    "mean": 184.81,
+    "p50": 157.36,
+    "p95": 280.06,
+    "n": 120
+   },
+   "rounds_mean": 2.4,
+   "hit_cap": 120
+  },
+  "inf": {
+   "char_ppl": 2.7516,
+   "mean_logp_true": -1.0122,
+   "p_true_lt_1e-3": 3,
+   "latency_ms": {
+    "mean": 310.0,
+    "p50": 310.03,
+    "p95": 511.23,
+    "n": 120
+   },
+   "rounds_mean": 4.27,
+   "hit_cap": 0
+  }
+ },
+ "naive_no_backoff": {
+  "char_ppl": 51.3787,
+  "mean_logp_true": -3.9392
+ },
+ "kv_mode": {
+  "multi_seq": {
+   "mean": 182.38,
+   "p50": 155.22,
+   "p95": 269.54,
+   "n": 40
+  },
+  "sequential": {
+   "mean": 244.54,
+   "p50": 200.96,
+   "p95": 438.88,
+   "n": 40
+  }
+ },
+ "expand": {
+  "naive": {
+   "latency_ms": {
+    "mean": 64.84,
+    "p50": 39.91,
+    "p95": 152.56,
+    "n": 40
+   },
+   "decode_calls_mean": 3.98
+  },
+  "level": {
+   "latency_ms": {
+    "mean": 49.3,
+    "p50": 41.61,
+    "p95": 118.6,
+    "n": 40
+   },
+   "decode_calls_mean": 1.52
+  },
+  "path": {
+   "latency_ms": {
+    "mean": 55.25,
+    "p50": 43.81,
+    "p95": 144.07,
+    "n": 40
+   },
+   "decode_calls_mean": 2.17
+  }
+ }
+}

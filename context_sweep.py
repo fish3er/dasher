@@ -436,9 +436,13 @@ def build_document(
     return Document(doc_id=doc_id, text=text, positions=positions)
 
 
-def load_documents(corpus_dir: Path, lemmatizer=None) -> list[Document]:
-    """Wczytaj wszystkie `.txt` z katalogu jako niezależne dokumenty (posortowane)."""
-    paths = sorted(corpus_dir.glob("*.txt"))
+def load_documents(corpus_dir: Path, lemmatizer=None, normalize=None, glob: str = "*.txt") -> list[Document]:
+    """Wczytaj wszystkie `.txt` z katalogu jako niezależne dokumenty (posortowane).
+
+    `normalize` — `eval_context.normalize_corpus_text`; na istniejących korpusach to
+    tożsamość, więc pozycje (offsety znakowe) są te same co w runach sprzed jej dodania.
+    """
+    paths = sorted(corpus_dir.glob(glob))
     if not paths:
         raise SystemExit(
             f"Brak plików .txt w {corpus_dir}. Wrzuć tam dokumenty korpusu — "
@@ -447,6 +451,8 @@ def load_documents(corpus_dir: Path, lemmatizer=None) -> list[Document]:
     docs = []
     for path in paths:
         text = path.read_text(encoding="utf-8")
+        if normalize is not None:
+            text = normalize(text)
         docs.append(build_document(path.stem, text, lemmatizer=lemmatizer))
     return docs
 
@@ -579,4 +585,76 @@ def sweep_position(
             "scores": [round(s.score, 6) for s in suggestions],
             "latency_ms": round(latency_ms, 3),
         })
+    return rows
+
+
+def build_context_text_gv(gv, doc_text: str, pos: TargetPosition, c_len: int) -> tuple[str, int]:
+    """Tekst wejścia G&V dla pary (pozycja, `c_len`) — to samo cięcie co
+    `build_prefix_tokens` (ostatnie `c_len` tokenów przed słowem + `immediate_prefix`),
+    ale BEZ `rstrip()`: G&V sam cofa się do ostatniej spacji i regeneruje resztę,
+    więc końcowa spacja na granicy słowa jest częścią dopasowywanego tekstu."""
+    context_text = doc_text[: pos.word_start]
+    ctx_tokens = gv.lm.tokenize(context_text, bos=False) if context_text else []
+    kept = ctx_tokens[-c_len:] if c_len > 0 else []
+    ctx_text = gv.lm.detokenize(kept) if kept else ""
+    return ctx_text + pos.immediate_prefix, len(kept)
+
+
+def sweep_position_gv(gv, doc_text: str, pos: TargetPosition, params: SweepParams,
+                      with_timing: bool = False) -> list[dict]:
+    """Jak `sweep_position`, ale backendem jest `gv_search.GVSearch`.
+
+    Lista sugestii = `GVSearch.top_words(ctx, K)` (te same pola co legacy, więc matchery
+    i agregaty działają bez zmian). Dodatkowo: P(prawdziwego następnego znaku) do
+    perplexity per znak (metryka artykułu) i czasy etapów. L2/L3 i frazy są drogie,
+    więc mierzone tylko przy `with_timing` (co N-ty rekord, `timing_every`).
+    """
+    import gv_tree
+
+    rows: list[dict] = []
+    nxt_char = pos.ground_truth[:1].lower()
+    for c_len in params.c_lens:
+        ctx, c_len_eff = build_context_text_gv(gv, doc_text, pos, c_len)
+        t0 = time.perf_counter()
+        res = gv.search(ctx)
+        t1 = time.perf_counter()
+        suggestions = gv.top_words(ctx, k=params.n_suggestions, res=res)
+        t2 = time.perf_counter()
+        l1 = gv_tree.build_l1(gv, res, gv.cfg.tree) if suggestions or res.groups else []
+        t3 = time.perf_counter()
+        row = {
+            "doc_id": pos.doc_id,
+            "word_index": pos.word_index,
+            "cursor": pos.cursor,
+            "c_len": c_len,
+            "c_len_effective": c_len_eff,
+            "c_len_truncated": c_len_eff < c_len,
+            "prefix_tokens": len(res.prefix_tokens),
+            "level": pos.level,
+            "segment": pos.segment,
+            "seen_before": pos.seen_before,
+            "immediate_prefix": pos.immediate_prefix,
+            "immediate_prefix_len": len(pos.immediate_prefix),
+            "ground_truth": pos.ground_truth,
+            "word": pos.word,
+            "suggestions": [s.text for s in suggestions],
+            "complete": [s.complete for s in suggestions],
+            "scores": [round(s.score, 6) for s in suggestions],
+            "latency_ms": round((t2 - t0) * 1000.0, 3),
+            "char_ms": round((t1 - t0) * 1000.0, 3),
+            "words_ms": round((t2 - t1) * 1000.0, 3),
+            "l1_ms": round((t3 - t2) * 1000.0, 3),
+            "p_next_char": round(res.char_probs.get(nxt_char, 0.0), 8),
+            "next_char": nxt_char,
+            "n_completed": res.n_completed,
+            "hit_cap": res.hit_cap,
+            "l1_tiles": len(l1),
+        }
+        if with_timing and l1:
+            info = gv_tree.expand_subtrees(gv, res, l1, gv.cfg.tree, depth=3)
+            row["l23_ms"] = round(info["ms"], 3)
+            t4 = time.perf_counter()
+            gv.top_phrases(ctx, words=suggestions)
+            row["phrases_ms"] = round((time.perf_counter() - t4) * 1000.0, 3)
+        rows.append(row)
     return rows

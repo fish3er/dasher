@@ -1,0 +1,28 @@
+2026-10-27 08:02:17,452 INFO eval_context: Wczytano 1 dokumentów, łącznie 30307 kandydujących pozycji targetów
+2026-10-27 08:02:17,468 INFO beam_search: Ładowanie modelu GGUF: models/google_gemma-4-E4B-it-Q4_K_M.gguf (n_gpu_layers=-1, n_ctx=16384)
+llama_context: n_ctx_seq (16384) < n_ctx_train (131072) -- the full capacity of the model will not be utilized
+llama_kv_cache_iswa: using full-size SWA cache (ref: https://github.com/ggml-org/llama.cpp/pull/13194#issuecomment-2868343055)
+llama_kv_cache: the V embeddings have different sizes across layers and FA is not enabled - padding V cache to 1024
+llama_kv_cache: the V embeddings have different sizes across layers and FA is not enabled - padding V cache to 1024
+2026-10-27 08:02:19,245 INFO beam_search: Model załadowany (n_vocab=262144, eos=1, n_seq_max=64).
+2026-10-27 08:02:19,337 INFO eval_context: [legacy/multi_seq] rozgrzewka gotowa
+2026-10-27 08:02:28,310 INFO eval_context: [legacy/multi_seq seed=1 wolne_lektury_lalka] 10/600 pozycji, 11 s
+2026-10-27 08:02:40,758 INFO eval_context: [legacy/multi_seq seed=1 wolne_lektury_lalka] 20/600 pozycji, 23 s
+2026-10-27 08:02:55,232 INFO eval_context: [legacy/multi_seq seed=1 wolne_lektury_lalka] 30/600 pozycji, 38 s
+2026-10-27 08:03:11,099 INFO eval_context: [legacy/multi_seq seed=1 wolne_lektury_lalka] 40/600 pozycji, 54 s
+2026-10-27 08:03:29,837 INFO eval_context: [legacy/multi_seq seed=1 wolne_lektury_lalka] 50/600 pozycji, 72 s
+2026-10-27 08:03:54,163 INFO eval_context: [legacy/multi_seq seed=1 wolne_lektury_lalka] 60/600 pozycji, 97 s
+2026-10-27 08:04:18,003 INFO eval_context: [legacy/multi_seq seed=1 wolne_lektury_lalka] 70/600 pozycji, 121 s
+2026-10-27 08:04:44,725 INFO eval_context: [legacy/multi_seq seed=1 wolne_lektury_lalka] 80/600 pozycji, 147 s
+2026-10-27 08:05:14,703 INFO eval_context: [legacy/multi_seq seed=1 wolne_lektury_lalka] 90/600 pozycji, 177 s
+2026-10-27 08:05:46,486 INFO eval_context: [legacy/multi_seq seed=1 wolne_lektury_lalka] 100/600 pozycji, 209 s
+2026-10-27 08:06:19,281 INFO eval_context: [legacy/multi_seq seed=1 wolne_lektury_lalka] 110/600 pozycji, 242 s
+2026-10-27 08:06:53,103 INFO eval_context: [legacy/multi_seq seed=1 wolne_lektury_lalka] 120/600 pozycji, 276 s
+2026-10-27 08:07:29,237 INFO eval_context: [legacy/multi_seq seed=1 wolne_lektury_lalka] 130/600 pozycji, 312 s
+2026-10-27 08:08:05,824 INFO eval_context: [legacy/multi_seq seed=1 wolne_lektury_lalka] 140/600 pozycji, 348 s
+2026-10-27 08:08:41,995 INFO eval_context: [legacy/multi_seq seed=1 wolne_lektury_lalka] 150/600 pozycji, 385 s
+2026-10-27 08:09:20,365 INFO eval_context: [legacy/multi_seq seed=1 wolne_lektury_lalka] 160/600 pozycji, 423 s
+2026-10-27 08:10:00,715 INFO eval_context: [legacy/multi_seq seed=1 wolne_lektury_lalka] 170/600 pozycji, 463 s
+2026-10-27 08:10:44,923 INFO eval_context: [legacy/multi_seq seed=1 wolne_lektury_lalka] 180/600 pozycji, 507 s
+2026-10-27 08:11:32,369 INFO eval_context: [legacy/multi_seq seed=1 wolne_lektury_lalka] 190/600 pozycji, 555 s
+2026-10-27 08:12:19,273 INFO eval_context: [legacy/multi_seq seed=1 wolne_lektury_lalka] 200/600 pozycji, 602 s

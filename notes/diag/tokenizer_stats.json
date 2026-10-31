@@ -1,0 +1,407 @@
+{
+ "gguf": "models/google_gemma-4-E4B-it-Q4_K_M.gguf",
+ "n_vocab": 262144,
+ "n_control": 18,
+ "n_byte_fallback": 256,
+ "n_normal": 261870,
+ "inner_space_tokens": 31,
+ "inner_space_tokens_with_nonspace_chars": 1,
+ "inner_space_with_nonspace_examples": [
+  ">▁</"
+ ],
+ "trailing_space_after_text": 0,
+ "all_space_tokens": 31,
+ "all_space_lengths": {
+  "1": 1,
+  "2": 1,
+  "3": 1,
+  "4": 1,
+  "5": 1,
+  "6": 1,
+  "7": 1,
+  "8": 1,
+  "9": 1,
+  "10": 1,
+  "11": 1,
+  "12": 1,
+  "13": 1,
+  "14": 1,
+  "15": 1,
+  "16": 1,
+  "17": 1,
+  "18": 1,
+  "19": 1,
+  "20": 1,
+  "21": 1,
+  "22": 1,
+  "23": 1,
+  "24": 1,
+  "25": 1,
+  "26": 1,
+  "27": 1,
+  "28": 1,
+  "29": 1,
+  "30": 1,
+  "31": 1
+ },
+ "newline_tokens": 31,
+ "newline_tokens_mixed_with_text": 0,
+ "newline_mixed_examples": [],
+ "tab_tokens": 31,
+ "diacritics": {
+  "ą": {
+   "own_token": [
+    237198
+   ],
+   "own_token_with_space": [],
+   "n_tokens_containing": 133,
+   "tokenize": [
+    [
+     237198,
+     "ą"
+    ]
+   ]
+  },
+  "ć": {
+   "own_token": [
+    237289
+   ],
+   "own_token_with_space": [
+    51575
+   ],
+   "n_tokens_containing": 90,
+   "tokenize": [
+    [
+     237289,
+     "ć"
+    ]
+   ]
+  },
+  "ę": {
+   "own_token": [
+    237202
+   ],
+   "own_token_with_space": [],
+   "n_tokens_containing": 133,
+   "tokenize": [
+    [
+     237202,
+     "ę"
+    ]
+   ]
+  },
+  "ł": {
+   "own_token": [
+    237114
+   ],
+   "own_token_with_space": [
+    44416
+   ],
+   "n_tokens_containing": 206,
+   "tokenize": [
+    [
+     237114,
+     "ł"
+    ]
+   ]
+  },
+  "ń": {
+   "own_token": [
+    238041
+   ],
+   "own_token_with_space": [],
+   "n_tokens_containing": 32,
+   "tokenize": [
+    [
+     238041,
+     "ń"
+    ]
+   ]
+  },
+  "ó": {
+   "own_token": [
+    236916
+   ],
+   "own_token_with_space": [
+    15371
+   ],
+   "n_tokens_containing": 872,
+   "tokenize": [
+    [
+     236916,
+     "ó"
+    ]
+   ]
+  },
+  "ś": {
+   "own_token": [
+    237356
+   ],
+   "own_token_with_space": [
+    15589
+   ],
+   "n_tokens_containing": 123,
+   "tokenize": [
+    [
+     237356,
+     "ś"
+    ]
+   ]
+  },
+  "ź": {
+   "own_token": [
+    238992
+   ],
+   "own_token_with_space": [
+    123103
+   ],
+   "n_tokens_containing": 18,
+   "tokenize": [
+    [
+     238992,
+     "ź"
+    ]
+   ]
+  },
+  "ż": {
+   "own_token": [
+    237277
+   ],
+   "own_token_with_space": [
+    33842
+   ],
+   "n_tokens_containing": 112,
+   "tokenize": [
+    [
+     237277,
+     "ż"
+    ]
+   ]
+  },
+  "Ą": {
+   "own_token": [
+    243514
+   ],
+   "own_token_with_space": [],
+   "n_tokens_containing": 1,
+   "tokenize": [
+    [
+     243514,
+     "Ą"
+    ]
+   ]
+  },
+  "Ć": {
+   "own_token": [
+    242137
+   ],
+   "own_token_with_space": [
+    204169
+   ],
+   "n_tokens_containing": 2,
+   "tokenize": [
+    [
+     242137,
+     "Ć"
+    ]
+   ]
+  },
+  "Ę": {
+   "own_token": [
+    242910
+   ],
+   "own_token_with_space": [],
+   "n_tokens_containing": 1,
+   "tokenize": [
+    [
+     242910,
+     "Ę"
+    ]
+   ]
+  },
+  "Ł": {
+   "own_token": [
+    240237
+   ],
+   "own_token_with_space": [
+    63149
+   ],
+   "n_tokens_containing": 2,
+   "tokenize": [
+    [
+     240237,
+     "Ł"
+    ]
+   ]
+  },
+  "Ń": {
+   "own_token": [
+    244106
+   ],
+   "own_token_with_space": [],
+   "n_tokens_containing": 1,
+   "tokenize": [
+    [
+     244106,
+     "Ń"
+    ]
+   ]
+  },
+  "Ó": {
+   "own_token": [
+    238870
+   ],
+   "own_token_with_space": [
+    53185
+   ],
+   "n_tokens_containing": 8,
+   "tokenize": [
+    [
+     238870,
+     "Ó"
+    ]
+   ]
+  },
+  "Ś": {
+   "own_token": [
+    239753
+   ],
+   "own_token_with_space": [
+    40463
+   ],
+   "n_tokens_containing": 4,
+   "tokenize": [
+    [
+     239753,
+     "Ś"
+    ]
+   ]
+  },
+  "Ź": {
+   "own_token": [
+    243686
+   ],
+   "own_token_with_space": [],
+   "n_tokens_containing": 1,
+   "tokenize": [
+    [
+     243686,
+     "Ź"
+    ]
+   ]
+  },
+  "Ż": {
+   "own_token": [
+    241077
+   ],
+   "own_token_with_space": [
+    94119
+   ],
+   "n_tokens_containing": 2,
+   "tokenize": [
+    [
+     241077,
+     "Ż"
+    ]
+   ]
+  }
+ },
+ "valid_vocab_ui_alphabet": 135435,
+ "valid_vocab_starting_with_space": 84139,
+ "phrases": {
+  "naukowcy bad": [
+   [
+    181656,
+    "nau"
+   ],
+   [
+    19623,
+    "kow"
+   ],
+   [
+    3281,
+    "cy"
+   ],
+   [
+    4287,
+    "▁bad"
+   ]
+  ],
+  "naukowcy badający": [
+   [
+    181656,
+    "nau"
+   ],
+   [
+    19623,
+    "kow"
+   ],
+   [
+    3281,
+    "cy"
+   ],
+   [
+    4287,
+    "▁bad"
+   ],
+   [
+    104136,
+    "ający"
+   ]
+  ],
+  "idę d": [
+   [
+    547,
+    "id"
+   ],
+   [
+    237202,
+    "ę"
+   ],
+   [
+    513,
+    "▁d"
+   ]
+  ],
+  "idę do domu": [
+   [
+    547,
+    "id"
+   ],
+   [
+    237202,
+    "ę"
+   ],
+   [
+    776,
+    "▁do"
+   ],
+   [
+    80609,
+    "▁domu"
+   ]
+  ],
+  "źdźbło": [
+   [
+    238992,
+    "ź"
+   ],
+   [
+    236753,
+    "d"
+   ],
+   [
+    238992,
+    "ź"
+   ],
+   [
+    236763,
+    "b"
+   ],
+   [
+    11931,
+    "ło"
+   ]
+  ]
+ }
+}

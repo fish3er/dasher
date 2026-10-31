@@ -1,0 +1,36 @@
+# Jedna sekcja dla wyszukiwania G&V, drzewa tokenów, fraz, UI i symulacji (Phase 1–4).
+# Wartości domyślne żyją w gv_config.py; tu nadpisujemy tylko to, co świadomie zmieniamy.
+# Brak klucza = wartość domyślna. Nieznany klucz = błąd (literówka nie przechodzi cicho).
+
+gv:
+  search:
+    beam_width: 8            # Gaines & Vertanen 2025
+    max_completed: 32000     # 0 = bez limitu; decyzja: notes/diag/bench_gv.json
+    lowercase_context: true  # artykuł warunkuje na małych literach; UI pisze małymi
+    context_sentences: 1     # UI: poprzednie zdania sesji w kontekście
+    kv_mode: multi_seq
+    prefill_reuse: true      # UI; eval_context wymusza false (reprodukowalność)
+    words_max_depth: 4
+
+  tree:
+    l1: {top_p: 0.9, k_max: 5, p_min: 0.05}
+    l2: {top_p: 0.8, k_max: 3, p_min: 0.08}
+    l3: {top_p: 0.8, k_max: 3, p_min: 0.08}
+    expand_mode: level       # level | path
+    tile_unit: token         # token | syllable (wymaga pyphen)
+
+  phrases:
+    max_boxes: 3
+    max_words: 3
+    tau_ext: 0.4
+    tau_show: 0.1
+
+  ui:
+    letters_min_share: 0.25
+    letter_heights: weighted # uniform | weighted
+    show_probs: true
+
+  sim:
+    words: 120
+    start_word: 400
+    c_len: 250

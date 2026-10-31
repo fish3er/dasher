@@ -15,3 +15,10 @@ results/*_smoke/
 
 # częściowe snapshoty trwającego runu
 results/partial_*/
+
+# transkrypt podcastu (prawa autorskie; repo jest publiczne) — śledzone tylko README i source.json
+corpus_context_podcast_pl/*.txt
+corpus_context_podcast_pl/*.meta.json
+
+# indeks słownika G&V (gv_index.py) — lokalny, odtwarzalny z GGUF-a
+cache/

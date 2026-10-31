@@ -1,0 +1,13 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(flatpak-spawn --host sh -c \"python3 eval_context.py --config configs/eval_v3.yaml --smoke --corpus-dir corpus_smoke_pl --kv-mode both\")",
+      "Bash(time flatpak-spawn --host sh -c \"python3 eval_context.py --config configs/eval_v3.yaml --smoke --corpus-dir corpus_smoke_pl --c-lens 0,1,2,4,8,16,32,64,100,250,500,1000 --positions-per-doc 9\")",
+      "Bash(python3 -m unittest test_context_sweep test_beam_search test_eval_cases)",
+      "Bash(time flatpak-spawn --host sh -c \"python3 eval_context.py --config configs/eval_v3.yaml --smoke --corpus-dir corpus_smoke_pl\")",
+      "Bash(python3 -m py_compile eval_context.py context_sweep.py plot_context.py matcher.py corpus_validator.py beam_search.py)",
+      "Bash(flatpak-spawn --host sh -c \"python3 eval_context.py --config configs/eval_v3.yaml --smoke --corpus-dir corpus_smoke_pl\")",
+      "Bash(git reset *)"
+    ]
+  }
+}

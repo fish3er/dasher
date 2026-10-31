@@ -48,10 +48,43 @@ from context_sweep import (
     load_documents,
     sample_positions,
     sweep_position,
+    sweep_position_gv,
 )
 from matcher import LEMMA, STRICT, first_hit_rank, strict_matches, try_load_lemma_matcher
 
 logger = logging.getLogger("eval_context")
+
+SEARCH_LEGACY = "legacy"
+SEARCH_GV = "gv"
+
+
+def normalize_corpus_text(text: str) -> str:
+    """Normalizacja korpusu — JEDNA dla wszystkich korpusów (Lalka, podcast, …).
+
+    Kanoniczny format to ten, w którym już są istniejące korpusy: NFC, akapity
+    rozdzielone pustą linią, bez białych znaków na końcach linii i bez wielokrotnych
+    spacji, plik kończy się `\n`. Pojedyncze `\n` WEWNĄTRZ akapitu zostają (Lalka ma
+    wiersze cytatów łamane w ten sposób) — łączenie twardych łamań to zadanie
+    preprocessingu źródła (`tools/prep_podcast.py`), nie normalizacji. Na `corpus_context_pl/`,
+    `corpus_context_long_pl/` i `corpus_smoke_pl/` funkcja jest TOŻSAMOŚCIĄ (pinowane
+    testem `tests/test_prep_podcast.py`), więc jej wprowadzenie nie zmienia wyników
+    wcześniejszych runów. Pusta linia ma znaczenie: `_sentence_start_flags` traktuje
+    `\n\n` jako początek akapitu (segment `first_word`).
+    """
+    import re
+    import unicodedata
+
+    text = unicodedata.normalize("NFC", text)
+    text = text.replace("\r\n", "\n").replace("\r", "\n")
+    text = re.sub(r"[\u200b\u200c\u200d\u2060\ufeff]", "", text)
+    text = re.sub(r"[\u00a0\u2007\u202f\t\f\v]", " ", text)
+    paragraphs = []
+    for block in re.split(r"\n[^\S\n]*\n\s*", text):
+        lines = [" ".join(line.split()) for line in block.split("\n")]
+        para = "\n".join(line for line in lines if line)
+        if para:
+            paragraphs.append(para)
+    return "\n\n".join(paragraphs) + "\n" if paragraphs else ""
 
 
 # ---------------------------------------------------------------------------
@@ -80,6 +113,10 @@ class RunConfig:
     n_batch: int = 2048
     n_ctx: int = 16384
     latency_cap_ms: float = 0.0          # 0 = brak capa; > 0 przerywa run po przekroczeniu
+    search: str = SEARCH_LEGACY          # legacy (BeamSearch) | gv (Gaines & Vertanen)
+    gv_config: Path = Path("configs/gv.yaml")
+    timing_every: int = 10               # gv: L2/L3 + frazy mierzone co N-ty rekord (drogie)
+    corpus_glob: str = "*.txt"           # które pliki katalogu są dokumentami korpusu
     bootstrap_iters: int = 2000
     ci_alpha: float = 0.05
     lemma_model: str = "pl_core_news_sm"
@@ -125,6 +162,10 @@ def load_config(path: Path, overrides: dict | None = None) -> RunConfig:
         "bootstrap_iters": int(run.get("bootstrap_iters", 2000)),
         "ci_alpha": float(run.get("ci_alpha", 0.05)),
         "lemma_model": str(run.get("lemma_model", "pl_core_news_sm")),
+        "search": str(sweep.get("search", SEARCH_LEGACY)),
+        "gv_config": Path(sweep.get("gv_config", "configs/gv.yaml")),
+        "timing_every": int(run.get("timing_every", 10)),
+        "corpus_glob": str(corpus.get("glob", "*.txt")),
     }
     merged.update(overrides or {})
     if merged["top_k"] is not None:
@@ -359,7 +400,8 @@ def run(cfg: RunConfig, smoke: bool = False) -> Path:
     lemmatizer = try_load_lemma_matcher(cfg.lemma_model)
     matchers = [STRICT] + ([LEMMA] if lemmatizer is not None else [])
 
-    docs = load_documents(cfg.corpus_dir, lemmatizer=lemmatizer)
+    docs = load_documents(cfg.corpus_dir, lemmatizer=lemmatizer, normalize=normalize_corpus_text,
+                          glob=cfg.corpus_glob)
     if cfg.max_docs:
         docs = docs[: cfg.max_docs]
     # Dokument bez pozycji (pusty albo same jednoliterowe słowa) wywaliłby rozgrzewkę
@@ -390,7 +432,7 @@ def run(cfg: RunConfig, smoke: bool = False) -> Path:
         )
 
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    out_dir = cfg.results_dir / f"{timestamp}_{cfg.fingerprint()}{'_smoke' if smoke else ''}"
+    out_dir = cfg.results_dir / f"{timestamp}_{cfg.search}_{cfg.fingerprint()}{'_smoke' if smoke else ''}"
     out_dir.mkdir(parents=True, exist_ok=True)
     samples_path = out_dir / "per_sample.jsonl"
 
@@ -398,22 +440,36 @@ def run(cfg: RunConfig, smoke: bool = False) -> Path:
     t_run = time.perf_counter()
     with samples_path.open("w", encoding="utf-8") as fh:
         for kv_mode in kv_modes:
-            backend = CachedBeamSearch(
-                str(cfg.gguf), n_gpu_layers=cfg.n_gpu_layers, n_batch=cfg.n_batch,
-                n_ctx=cfg.n_ctx, kv_mode=kv_mode, prefill_reuse=cfg.prefill_reuse,
-                seed=cfg.seeds[0],
-            )
-            backend.require_seqs(cfg.beam_width)
+            if cfg.search == SEARCH_GV:
+                from gv_config import load_gv_config
+                from gv_search import GVSearch
+
+                gv_cfg = load_gv_config(cfg.gv_config, {"search": {"kv_mode": kv_mode}})
+                backend = GVSearch.from_gguf(
+                    str(cfg.gguf), gv_cfg, n_ctx=cfg.n_ctx, n_batch=cfg.n_batch,
+                    n_gpu_layers=cfg.n_gpu_layers, prefill_reuse=cfg.prefill_reuse,
+                    seed=cfg.seeds[0],
+                )
+                sweep = lambda b, text, p, prm, i: sweep_position_gv(  # noqa: E731
+                    b, text, p, prm, with_timing=cfg.timing_every > 0 and i % cfg.timing_every == 0)
+            else:
+                backend = CachedBeamSearch(
+                    str(cfg.gguf), n_gpu_layers=cfg.n_gpu_layers, n_batch=cfg.n_batch,
+                    n_ctx=cfg.n_ctx, kv_mode=kv_mode, prefill_reuse=cfg.prefill_reuse,
+                    seed=cfg.seeds[0],
+                )
+                backend.require_seqs(cfg.beam_width)
+                sweep = lambda b, text, p, prm, i: sweep_position(b, text, p, prm)  # noqa: E731
 
             # Rozgrzewka (P5): pierwszy suggest łyka kompilację shaderów Vulkan
             # i alokację buforów GPU; bez tego pierwsze pozycje zawyżają mean latencji.
             warm_doc = docs[0]
             warm_pos = warm_doc.positions[min(50, len(warm_doc.positions) - 1)]
-            sweep_position(backend, warm_doc.text, warm_pos,
-                           SweepParams(c_lens=(8,), n_suggestions=cfg.n_suggestions,
-                                       beam_width=cfg.beam_width, top_k=cfg.top_k,
-                                       top_p=cfg.top_p))
-            logger.info("[%s] rozgrzewka gotowa", kv_mode)
+            sweep(backend, warm_doc.text, warm_pos,
+                  SweepParams(c_lens=(8,), n_suggestions=cfg.n_suggestions,
+                              beam_width=cfg.beam_width, top_k=cfg.top_k,
+                              top_p=cfg.top_p), 0)
+            logger.info("[%s/%s] rozgrzewka gotowa", cfg.search, kv_mode)
 
             for seed in cfg.seeds:
                 for doc in docs:
@@ -423,9 +479,10 @@ def run(cfg: RunConfig, smoke: bool = False) -> Path:
                         min_context_chars=cfg.min_context_chars,
                     )
                     for i, pos in enumerate(positions, start=1):
-                        for row in sweep_position(backend, doc.text, pos, params):
+                        for row in sweep(backend, doc.text, pos, params, i):
                             row["seed"] = seed
                             row["kv_mode"] = kv_mode
+                            row["search"] = cfg.search
                             score_row(row, lemmatizer, cfg.n_suggestions)
                             rows.append(row)
                             fh.write(json.dumps(row, ensure_ascii=False) + "\n")
@@ -438,8 +495,8 @@ def run(cfg: RunConfig, smoke: bool = False) -> Path:
                                 )
                         if i % 10 == 0 or i == len(positions):
                             logger.info(
-                                "[%s seed=%d %s] %d/%d pozycji, %.0f s",
-                                kv_mode, seed, doc.doc_id, i, len(positions),
+                                "[%s/%s seed=%d %s] %d/%d pozycji, %.0f s",
+                                cfg.search, kv_mode, seed, doc.doc_id, i, len(positions),
                                 time.perf_counter() - t_run,
                             )
             del backend  # zwolnij kontekst przed załadowaniem drugiego trybu KV
@@ -586,6 +643,11 @@ def main(argv: list[str] | None = None) -> None:
                         help="Nadpisz siatkę c_len, po przecinku (np. 0,8,64,1000)")
     parser.add_argument("--seeds", type=str, default=None,
                         help="Nadpisz listę seedów, po przecinku (np. 1,2,3)")
+    parser.add_argument("--search", choices=(SEARCH_LEGACY, SEARCH_GV), default=None,
+                        help="Algorytm podpowiedzi: legacy (BeamSearch) albo gv (Gaines & Vertanen)")
+    parser.add_argument("--gv-config", type=Path, default=None)
+    parser.add_argument("--corpus-glob", default=None, help="np. podcast_clean.txt")
+    parser.add_argument("--results-dir", type=Path, default=None)
     args = parser.parse_args(argv)
 
     if not args.config.is_file():
@@ -607,6 +669,14 @@ def main(argv: list[str] | None = None) -> None:
         overrides["c_lens"] = tuple(int(x) for x in args.c_lens.split(","))
     if args.seeds:
         overrides["seeds"] = tuple(int(x) for x in args.seeds.split(","))
+    if args.search:
+        overrides["search"] = args.search
+    if args.gv_config:
+        overrides["gv_config"] = args.gv_config
+    if args.corpus_glob:
+        overrides["corpus_glob"] = args.corpus_glob
+    if args.results_dir:
+        overrides["results_dir"] = args.results_dir
 
     cfg = load_config(args.config, overrides)
     random.seed(cfg.seeds[0])
