@@ -1,7 +1,7 @@
 """Dwupoziomowy, batchowany beam search nad modelem Gemma 4 (GGUF).
 
 Moduł celowo trzyma importy `llama_cpp` oraz `numpy` w środku metod, tak aby
-`from beam_search import BeamSearch` (a więc i `eval.py --help`) działało nawet
+`from beam_search import BeamSearch` działało nawet
 gdy backend nie jest jeszcze zainstalowany.
 
 Kluczowa cecha wydajnościowa: na każdym kroku beam searcha wszystkie aktywne
@@ -14,7 +14,17 @@ from __future__ import annotations
 import logging
 import math
 import re
-from typing import NamedTuple
+from typing import NamedTuple, Sequence
+
+from token_tree import (
+    DEFAULT_WIDTHS,
+    EMPTY_ROOT,
+    MAX_DEPTH,
+    TreeNode,
+    ends_with_punct,
+    grow_tree,
+    pick_children,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -26,13 +36,24 @@ LEVEL_MID_WORD = "mid_word"
 LEVEL_WORD_BOUNDARY = "word_boundary"
 
 # Maksymalna liczba tokenów dokończenia na beam. 6 to kompromis latencja/jakość;
-# polska fleksja bywa cięta grubo (5-7 tokenów), więc cap 6 leży na granicy —
-# porównanie 12 vs 6 pod poprawionym matcherem (P4) jest osobnym krokiem eval.
+# polska fleksja bywa cięta grubo (5-7 tokenów), więc cap 6 leży na granicy.
 _MAX_NEW_TOKENS = 6
 
 # Górny limit równoległych sekwencji (beamów) w jednym batchu. Kontekst llama
 # musi być utworzony z n_seq_max >= beam_width, inaczej llama_decode zwraca -1.
 _MAX_PARALLEL_SEQS = 64
+
+# Ile tokenów bierzemy per węzeł drzewa przed filtrem. Na granicy słowa ~16% top-4 to nowe
+# linie, interpunkcja i tokeny kontrolne, więc top-`width` po filtrze byłoby za krótkie.
+_TREE_FETCH = 16
+
+
+def text_level(text: str) -> str:
+    """Poziom predykcji dla tekstu. Po interpunkcji pytamy o następne słowo (jak na granicy),
+    inaczej beam search odrzuciłby wszystkie beamy zaczynające się od spacji."""
+    if not text or text[-1].isspace() or ends_with_punct(text):
+        return LEVEL_WORD_BOUNDARY
+    return LEVEL_MID_WORD
 
 
 class Suggestion(NamedTuple):
@@ -105,14 +126,12 @@ class BeamSearch:
                 model_path=gguf_path,
                 n_gpu_layers=n_gpu_layers,
                 logits_all=False,   # potrzebujemy tylko ostatniego tokenu na krok
-                # Domyślne 2048 mieści beam_width * długość sekwencji w KV cache dla
-                # krótkich prefiksów eval.py. Sweep kontekstowy podaje tu tyle, ile
-                # wymaga najdłuższy c_len — patrz `context_sweep.CachedBeamSearch`.
+                # Domyślne 2048 mieści prefix i ogony sekwencji w KV cache.
                 n_ctx=n_ctx,
                 # Pojedynczy llama_decode NIE może przekroczyć n_batch tokenów — przy
                 # szerokich beamach to jest wiążący limit, nie n_ctx: batch ma
                 # beam_width * (len(prefix) + krok) tokenów, bo prefix jest re-enkodowany
-                # dla każdego beamu (P1). Nadmiar tnie `_decode_last` na porcje.
+                # dla każdego beamu. Nadmiar tnie `_decode_last` na porcje.
                 n_batch=n_batch,
                 n_ubatch=n_batch,
                 verbose=False,
@@ -195,7 +214,7 @@ class BeamSearch:
                 for tok, lp in self._nucleus(self._topk_logprobs(logits, n_expansions), top_p):
                     candidates.append((beam.logprob + lp, beam, tok, lp))
 
-            # P3: ranking rozwinięć po ZNORMALIZOWANYM skumulowanym log-probie
+            # Ranking rozwinięć po ZNORMALIZOWANYM skumulowanym log-probie
             # (skumulowany / liczba tokenów), spójnie z rankingiem w _finalize.
             # Wszystkie aktywne beamy mają na danym kroku tę samą długość, więc dla
             # SAMEGO wyboru rozwinięć jest to równoważne sortowaniu po skumulowanym;
@@ -212,7 +231,7 @@ class BeamSearch:
                 cont = full_text[len(prefix_text):]
                 text, boundary = self._extract(level, cont)
                 complete = boundary or tok == self._eos
-                # P2 (a): mid_word beam zamknięty spacją/EOS to PUSTE dokończenie
+                # mid_word beam zamknięty spacją/EOS to PUSTE dokończenie
                 # (model uznał słowo za skończone). Taki beam ma wysoki log-prob i
                 # bez tego wypełnia slot pustką, wypychając realne beamy w kolejnych
                 # krokach i obcinając listę sugestii. Pomijamy go — pętla dobierze
@@ -221,21 +240,78 @@ class BeamSearch:
                     continue
                 new_beams.append(_Beam(tokens=tokens, logprob=cum_lp, text=text, complete=complete))
 
-            # P3: retencja beamów po znormalizowanym log-probie — inaczej beam
+            # Retencja beamów po znormalizowanym log-probie — inaczej beam
             # wygrywający po normalizacji bywa tu ucięty po surowym skumulowanym
             # (który faworyzuje krótkie, wcześnie ukończone beamy).
             beams = self._prune_beams(done_beams + new_beams, beam_width)
 
         return self._finalize(beams, level, n)
 
-    def count_tokens(self, text: str) -> int:
-        """Ile tokenów zajmie `text` jako prefix (z BOS) — do sprawdzania budżetu batcha.
+    def prefix_ids(self, text: str) -> tuple[list[int], str]:
+        """Tokeny prefiksu i poziom — ta sama obsługa końcówki tekstu co w `suggest`.
 
-        Batch jednego kroku ma `beam_width * (count_tokens(prefix) + krok)` tokenów,
-        bo prefix jest re-enkodowany dla każdego beamu. Pozwala sprawdzić PRZED
-        ewaluacją, czy dana szerokość beamu zmieści się w `n_batch`.
+        Na granicy słowa końcowe białe znaki są ucinane (patrz komentarz w `suggest`).
         """
-        return len(self._llama.tokenize(text.encode("utf-8"), add_bos=True, special=False))
+        level = text_level(text)
+        tok_text = text.rstrip() if level == LEVEL_WORD_BOUNDARY else text
+        ids = self._llama.tokenize(tok_text.encode("utf-8"), add_bos=True, special=False)
+        return list(ids), level
+
+    def token_tree(
+        self,
+        prefix: str,
+        widths: Sequence[int] = DEFAULT_WIDTHS,
+        top_p: float = 1.0,
+        max_leaves: int | None = None,
+    ) -> TreeNode:
+        """Drzewo tokenów dla tekstu: po jednym batchowanym dekodowaniu na poziom."""
+        ids, _ = self.prefix_ids(prefix)
+        after_whitespace = not prefix or prefix[-1].isspace()
+        return self.extend_tree(
+            ids, EMPTY_ROOT, widths, len(widths), after_whitespace, top_p, max_leaves
+        )
+
+    def extend_tree(
+        self,
+        ids: Sequence[int],
+        root: TreeNode,
+        widths: Sequence[int] = DEFAULT_WIDTHS,
+        upto_depth: int = MAX_DEPTH,
+        after_whitespace: bool = False,
+        top_p: float = 1.0,
+        max_leaves: int | None = None,
+    ) -> TreeNode:
+        """Dolicz brakujące poziomy `root` do `upto_depth`, dokładając tokeny do `ids`.
+
+        Tekstu nie tokenizujemy ponownie: istniejące boksy mają konkretne token_id i to one
+        są kontekstem kolejnego poziomu (tokenizacja sklejonego tekstu bywa inna).
+        """
+        ids = list(ids)
+
+        def decode(token_id: int) -> bytes:
+            return self._llama.detokenize([token_id], special=False)
+
+        def expand(paths: list[tuple[int, ...]], width: int) -> list[tuple[TreeNode, ...]]:
+            fetch = max(_TREE_FETCH, 2 * width)
+            logits_list = self._path_logits(ids, paths)
+            return [
+                pick_children(
+                    self._topk_logprobs(logits, fetch), decode, width,
+                    first_after_space=after_whitespace and not path,
+                    top_p=top_p,
+                    # Głębokość 1 zawsze z wyborem: jeden boks na całe pasmo nie ma kolumny
+                    # i wybierałby się przy pierwszym ruchu w prawo.
+                    min_keep=2 if not path else 1,
+                )
+                for path, logits in zip(paths, logits_list)
+            ]
+
+        return grow_tree(root, widths, upto_depth, expand, max_leaves)
+
+    def _path_logits(self, ids: list[int], paths: list[tuple[int, ...]]):
+        """Logity po dopisaniu każdej ze ścieżek do prefiksu. Bez cache'u: pełny prefix per
+        sekwencja; `CachedBeamSearch` podmienia to na odtwarzanie samych ogonów."""
+        return self._decode_last([ids + list(path) for path in paths])
 
     # ------------------------------------------------------------------
     # Ekstrakcja / ranking
@@ -285,7 +361,7 @@ class BeamSearch:
     def _norm_score(beam: _Beam) -> float:
         """Znormalizowany log-prob beamu (skumulowany / liczba tokenów).
 
-        Jedno źródło prawdy dla pruningu (patrz P3 w suggest) i rankingu końcowego —
+        Jedno źródło prawdy dla pruningu (patrz `suggest`) i rankingu końcowego —
         oba muszą używać tej samej miary, inaczej beam wygrywający po normalizacji
         bywa ucięty przy pruningu po surowym skumulowanym log-probie.
         """
@@ -294,7 +370,7 @@ class BeamSearch:
     def _prune_beams(self, beams: list[_Beam], beam_width: int) -> list[_Beam]:
         """Zatrzymaj `beam_width` najlepszych beamów wg znormalizowanego log-probu.
 
-        Ta sama miara co ranking w _finalize (P3): retencja podczas searcha i ranking
+        Ta sama miara co ranking w _finalize: retencja podczas searcha i ranking
         końcowy MUSZĄ używać tego samego score'a, inaczej beam wygrywający po
         normalizacji bywa ucięty tu po surowym skumulowanym log-probie.
         """
@@ -352,7 +428,7 @@ class BeamSearch:
         Batch musi zmieścić się w DWÓCH limitach naraz, inaczej `llama_decode` zwraca -1:
           * `n_seq_max` kontekstu — liczba sekwencji (patrz patch w __init__),
           * `n_batch` — liczba TOKENÓW. Ten drugi wiąże wcześniej, niż się wydaje:
-            prefix jest re-enkodowany dla każdego beamu (P1), więc batch rośnie jak
+            prefix jest re-enkodowany dla każdego beamu, więc batch rośnie jak
             beam_width * długość_prefiksu. Dla prefiksu ~50 tokenów i beam_width=12
             to już ~600 tokenów przy domyślnym n_batch=512.
         Nadmiar tniemy na porcje: każda sekwencja jest samodzielna (pozycje od zera,

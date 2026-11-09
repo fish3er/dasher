@@ -1,5 +1,3 @@
-polish_model/
-
 # Wagi modeli — GGUF ma 5+ GB, nie wolno mu trafić do historii gita
 models/
 *.gguf
@@ -7,11 +5,12 @@ models/
 __pycache__/
 *.pyc
 
-# cache sha256 modelu — lokalny, zależny od mtime pliku
-results/.model_hash_cache.json
+# dzienniki sesji testów UX (--log-dir)
+session_logs/
 
-# runy smoke to weryfikacja robocza, nie wynik
-results/*_smoke/
-
-# częściowe snapshoty trwającego runu
-results/partial_*/
+# Lokalne pliki innych branchy, zostają na dysku po przełączeniu. Repo jest publiczne,
+# a transkrypt podcastu objęty prawami autorskimi — nie mogą tu trafić przez `git add -A`.
+cache/
+results/
+corpus_context_podcast_pl/
+polish_model/

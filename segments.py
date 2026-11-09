@@ -1,0 +1,122 @@
+"""Tekst jako segmenty + historia cofania, bez tkintera.
+
+Każde wstawienie to jeden segment ze źródłem (litera / token / słowo). Cofnięcie zdejmuje
+ostatni segment niezależnie od źródła i odtwarza migawkę stanu sprzed wstawienia — drzewo
+i sugestie są w migawce, więc cofnięcie nie wymaga ponownego liczenia.
+"""
+
+from __future__ import annotations
+
+import math
+import time
+from dataclasses import dataclass, field
+from typing import Callable
+
+from token_tree import TreeNode
+
+SOURCE_LETTER = "letter"
+SOURCE_TOKEN = "token"
+SOURCE_WORD = "word"
+SOURCES = (SOURCE_LETTER, SOURCE_TOKEN, SOURCE_WORD)
+
+GHOST_FADE_S = 0.8
+PENDING_FADE_S = 0.2
+STRIKE_FROM = 0.5
+
+
+@dataclass(frozen=True)
+class Segment:
+    text: str
+    source: str
+
+
+@dataclass(frozen=True)
+class HistoryEntry:
+    segment: Segment
+    # Stan SPRZED wstawienia segmentu.
+    token_ids: tuple[int, ...] | None
+    root: TreeNode
+    suggestions: tuple = ()
+    words_ready: bool = False
+    # Granice wybranego boksu w starym drzewie; None = wybór z paska (widok wraca na całe pasmo).
+    el_low: float | None = None
+    el_high: float | None = None
+    # Czy drzewo było już policzone do końca; wtedy cofnięcie nic nie liczy od nowa.
+    tree_done: bool = False
+
+
+class History:
+    def __init__(self, min_interval: float = 0.5, clock: Callable[[], float] = time.perf_counter) -> None:
+        self.min_interval = min_interval
+        self._clock = clock
+        self.entries: list[HistoryEntry] = []
+        self._last_undo: float | None = None
+
+    @property
+    def segments(self) -> list[Segment]:
+        return [e.segment for e in self.entries]
+
+    @property
+    def text(self) -> str:
+        return "".join(e.segment.text for e in self.entries)
+
+    def __bool__(self) -> bool:
+        return bool(self.entries)
+
+    def push(self, entry: HistoryEntry) -> None:
+        self.entries.append(entry)
+
+    def can_undo(self) -> bool:
+        if not self.entries:
+            return False
+        return self._last_undo is None or self._clock() - self._last_undo >= self.min_interval
+
+    def undo(self, force: bool = False) -> HistoryEntry | None:
+        """Zdejmij ostatni segment. `force` omija limit (debugowe cofanie klawiszem/myszą)."""
+        if not self.entries or not (force or self.can_undo()):
+            return None
+        self._last_undo = self._clock()
+        return self.entries.pop()
+
+
+def undo_progress(view_range: float, undo_zoom: float) -> float:
+    """Postęp do progu cofnięcia 0..1, liniowo w log(zakres): ruch oddalania jest wykładniczy."""
+    if view_range <= 1.0 or undo_zoom <= 1.0:
+        return 0.0
+    return min(1.0, math.log(view_range) / math.log(undo_zoom))
+
+
+class PendingStyle:
+    """Intensywność stylu „do usunięcia”: rośnie z postępem, a po wycofaniu gaśnie płynnie."""
+
+    def __init__(self) -> None:
+        self.intensity = 0.0
+
+    def update(self, progress: float, dt: float) -> float:
+        self.intensity = max(progress, self.intensity - dt / PENDING_FADE_S, 0.0)
+        return self.intensity
+
+    @property
+    def struck(self) -> bool:
+        return self.intensity > STRIKE_FROM
+
+    def reset(self) -> None:
+        self.intensity = 0.0
+
+
+@dataclass
+class GhostTrail:
+    """Usunięte teksty widoczne za kursorem, najnowszy pierwszy, jak w oryginalnej kolejności."""
+
+    ghosts: list[tuple[str, float]] = field(default_factory=list)
+
+    def add(self, text: str, now: float) -> None:
+        self.ghosts.insert(0, (text, now))
+
+    def clear(self) -> None:
+        self.ghosts.clear()
+
+    def active(self, now: float) -> list[tuple[str, float]]:
+        """(tekst, krycie 1..0). Wygasłe duchy są usuwane."""
+        self.ghosts = [(t, born) for t, born in self.ghosts if now - born < GHOST_FADE_S]
+        return [(t, 1.0 - (now - born) / GHOST_FADE_S) for t, born in self.ghosts]
