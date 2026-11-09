@@ -1,0 +1,188 @@
+2026-11-09 19:08:54,905 INFO eval_context: Wczytano 1 dokumentów, łącznie 52564 kandydujących pozycji targetów
+2026-11-09 19:08:54,920 INFO beam_search: Ładowanie modelu GGUF: models/google_gemma-4-E4B-it-Q4_K_M.gguf (n_gpu_layers=-1, n_ctx=16384)
+llama_context: n_ctx_seq (16384) < n_ctx_train (131072) -- the full capacity of the model will not be utilized
+llama_kv_cache_iswa: using full-size SWA cache (ref: https://github.com/ggml-org/llama.cpp/pull/13194#issuecomment-2868343055)
+llama_kv_cache: the V embeddings have different sizes across layers and FA is not enabled - padding V cache to 1024
+llama_kv_cache: the V embeddings have different sizes across layers and FA is not enabled - padding V cache to 1024
+2026-11-09 19:08:56,632 INFO beam_search: Model załadowany (n_vocab=262144, eos=1, n_seq_max=64).
+2026-11-09 19:08:56,784 INFO eval_context: [legacy/multi_seq] rozgrzewka gotowa
+2026-11-09 19:09:13,598 INFO eval_context: [legacy/multi_seq seed=1 podcast_clean] 10/60 pozycji, 19 s
+2026-11-09 19:09:59,028 INFO eval_context: [legacy/multi_seq seed=1 podcast_clean] 20/60 pozycji, 64 s
+2026-11-09 19:10:49,879 INFO eval_context: [legacy/multi_seq seed=1 podcast_clean] 30/60 pozycji, 115 s
+2026-11-09 19:11:41,724 INFO eval_context: [legacy/multi_seq seed=1 podcast_clean] 40/60 pozycji, 167 s
+2026-11-09 19:12:33,401 INFO eval_context: [legacy/multi_seq seed=1 podcast_clean] 50/60 pozycji, 218 s
+2026-11-09 19:13:24,671 INFO eval_context: [legacy/multi_seq seed=1 podcast_clean] 60/60 pozycji, 270 s
+2026-11-09 19:13:24,755 INFO eval_context: Zmierzono 300 rekordów w 270 s
+2026-11-09 19:13:24,911 INFO eval_context: Liczę sha256 modelu (5.4 GB, jednorazowo)...
+
+=== E1: Hit@1 vs c_len — matcher `strict` ===
+  c_len      N   poz.    Hit@1            CI 95%     seedy min-max    Hit@K  obcięte  lat.mean
+----------------------------------------------------------------------------------------------
+      0     60     60    0.000    [0.000, 0.000]       0.000-0.000    0.000       0%        84
+    250     60     60    0.183    [0.117, 0.317]       0.183-0.183    0.233       3%       207
+   1000     60     60    0.183    [0.100, 0.300]       0.183-0.183    0.233      13%       555
+   2000     60     60    0.167    [0.083, 0.267]       0.167-0.167    0.233      17%      1037
+   5000     60     60    0.217    [0.117, 0.333]       0.217-0.217    0.267      27%      2469
+
+--- seen vs unseen (główny wykres tezy) ---
+  c_len                  seen                unseen
+---------------------------------------------------
+      0          0.000 (n=45)          0.000 (n=15)
+    250          0.133 (n=45)          0.333 (n=15)
+   1000          0.133 (n=45)          0.333 (n=15)
+   2000          0.156 (n=45)          0.200 (n=15)
+   5000          0.178 (n=45)          0.333 (n=15)
+
+--- segmenty ---
+  c_len      first_word        mid_word           later
+-------------------------------------------------------
+      0    0.000 (n=20)    0.000 (n=20)    0.000 (n=20)
+    250    0.000 (n=20)    0.400 (n=20)    0.150 (n=20)
+   1000    0.000 (n=20)    0.400 (n=20)    0.150 (n=20)
+   2000    0.000 (n=20)    0.300 (n=20)    0.200 (n=20)
+   5000    0.050 (n=20)    0.400 (n=20)    0.200 (n=20)
+
+=== E2: użyteczność sesyjna (c_len=5000) — matcher `strict` ===
+kubełek               N    Hit@1            CI 95%    Hit@K
+-----------------------------------------------------------
+overall              60    0.217    [0.117, 0.333]    0.267
+first_word           20    0.050    [0.000, 0.150]    0.100
+mid_word             20    0.400    [0.200, 0.650]    0.400
+later                20    0.200    [0.050, 0.400]    0.300
+seen_seen            45    0.178    [0.067, 0.311]    0.222
+seen_unseen          15    0.333    [0.133, 0.533]    0.400
+
+=== E1: Hit@1 vs c_len — matcher `lemma` ===
+  c_len      N   poz.    Hit@1            CI 95%     seedy min-max    Hit@K  obcięte  lat.mean
+----------------------------------------------------------------------------------------------
+      0     60     60    0.017    [0.000, 0.050]       0.017-0.017    0.017       0%        84
+    250     60     60    0.183    [0.117, 0.317]       0.183-0.183    0.250       3%       207
+   1000     60     60    0.183    [0.100, 0.300]       0.183-0.183    0.250      13%       555
+   2000     60     60    0.183    [0.100, 0.300]       0.183-0.183    0.233      17%      1037
+   5000     60     60    0.217    [0.117, 0.333]       0.217-0.217    0.300      27%      2469
+
+--- seen vs unseen (główny wykres tezy) ---
+  c_len                  seen                unseen
+---------------------------------------------------
+      0          0.022 (n=45)          0.000 (n=15)
+    250          0.133 (n=45)          0.333 (n=15)
+   1000          0.133 (n=45)          0.333 (n=15)
+   2000          0.156 (n=45)          0.267 (n=15)
+   5000          0.178 (n=45)          0.333 (n=15)
+
+--- segmenty ---
+  c_len      first_word        mid_word           later
+-------------------------------------------------------
+      0    0.000 (n=20)    0.050 (n=20)    0.000 (n=20)
+    250    0.000 (n=20)    0.400 (n=20)    0.150 (n=20)
+   1000    0.000 (n=20)    0.400 (n=20)    0.150 (n=20)
+   2000    0.000 (n=20)    0.350 (n=20)    0.200 (n=20)
+   5000    0.050 (n=20)    0.400 (n=20)    0.200 (n=20)
+
+=== E2: użyteczność sesyjna (c_len=5000) — matcher `lemma` ===
+kubełek               N    Hit@1            CI 95%    Hit@K
+-----------------------------------------------------------
+overall              60    0.217    [0.117, 0.333]    0.300
+first_word           20    0.050    [0.000, 0.150]    0.100
+mid_word             20    0.400    [0.200, 0.650]    0.500
+later                20    0.200    [0.050, 0.400]    0.300
+seen_seen            45    0.178    [0.067, 0.311]    0.244
+seen_unseen          15    0.333    [0.133, 0.533]    0.467
+
+Latencja: 871 ms mean / 512 p50 / 3032 p95 / 3263 max
+
+Wyniki: results/beamserach_updated/podcast_smoke_rerun/20261109_190854_legacy_618ead91_smoke
+2026-11-09 19:13:33,085 INFO eval_context: Wczytano 1 dokumentów, łącznie 52564 kandydujących pozycji targetów
+2026-11-09 19:13:33,151 INFO beam_search: Ładowanie modelu GGUF: models/google_gemma-4-E4B-it-Q4_K_M.gguf (n_gpu_layers=-1, n_ctx=16384)
+llama_context: n_ctx_seq (16384) < n_ctx_train (131072) -- the full capacity of the model will not be utilized
+llama_kv_cache_iswa: using full-size SWA cache (ref: https://github.com/ggml-org/llama.cpp/pull/13194#issuecomment-2868343055)
+llama_kv_cache: the V embeddings have different sizes across layers and FA is not enabled - padding V cache to 1024
+llama_kv_cache: the V embeddings have different sizes across layers and FA is not enabled - padding V cache to 1024
+2026-11-09 19:13:34,837 INFO beam_search: Model załadowany (n_vocab=262144, eos=1, n_seq_max=64).
+2026-11-09 19:13:34,891 INFO gv_index: Indeks słownika z cache'u: cache/gv_index_a8d8bf3d6eb0696c.pkl (135405 poprawnych tokenów)
+2026-11-09 19:13:35,433 INFO eval_context: [gv/multi_seq] rozgrzewka gotowa
+2026-11-09 19:13:53,812 INFO eval_context: [gv/multi_seq seed=1 podcast_clean] 10/60 pozycji, 21 s
+2026-11-09 19:14:51,307 INFO eval_context: [gv/multi_seq seed=1 podcast_clean] 20/60 pozycji, 78 s
+2026-11-09 19:15:51,094 INFO eval_context: [gv/multi_seq seed=1 podcast_clean] 30/60 pozycji, 138 s
+2026-11-09 19:16:48,557 INFO eval_context: [gv/multi_seq seed=1 podcast_clean] 40/60 pozycji, 195 s
+2026-11-09 19:17:50,248 INFO eval_context: [gv/multi_seq seed=1 podcast_clean] 50/60 pozycji, 257 s
+2026-11-09 19:18:49,948 INFO eval_context: [gv/multi_seq seed=1 podcast_clean] 60/60 pozycji, 317 s
+2026-11-09 19:18:50,034 INFO eval_context: Zmierzono 300 rekordów w 317 s
+
+=== E1: Hit@1 vs c_len — matcher `strict` ===
+  c_len      N   poz.    Hit@1            CI 95%     seedy min-max    Hit@K  obcięte  lat.mean
+----------------------------------------------------------------------------------------------
+      0     60     60    0.000    [0.000, 0.000]       0.000-0.000    0.033       0%       145
+    250     60     60    0.300    [0.183, 0.433]       0.300-0.300    0.417       3%       285
+   1000     60     60    0.317    [0.200, 0.450]       0.317-0.317    0.400      13%       589
+   2000     60     60    0.317    [0.217, 0.450]       0.317-0.317    0.433      17%       993
+   5000     60     60    0.333    [0.233, 0.483]       0.333-0.333    0.417      27%      2336
+
+--- seen vs unseen (główny wykres tezy) ---
+  c_len                  seen                unseen
+---------------------------------------------------
+      0          0.000 (n=45)          0.000 (n=15)
+    250          0.267 (n=45)          0.400 (n=15)
+   1000          0.289 (n=45)          0.400 (n=15)
+   2000          0.289 (n=45)          0.400 (n=15)
+   5000          0.311 (n=45)          0.400 (n=15)
+
+--- segmenty ---
+  c_len      first_word        mid_word           later
+-------------------------------------------------------
+      0    0.000 (n=20)    0.000 (n=20)    0.000 (n=20)
+    250    0.000 (n=20)    0.700 (n=20)    0.200 (n=20)
+   1000    0.050 (n=20)    0.700 (n=20)    0.200 (n=20)
+   2000    0.050 (n=20)    0.750 (n=20)    0.150 (n=20)
+   5000    0.050 (n=20)    0.800 (n=20)    0.150 (n=20)
+
+=== E2: użyteczność sesyjna (c_len=5000) — matcher `strict` ===
+kubełek               N    Hit@1            CI 95%    Hit@K
+-----------------------------------------------------------
+overall              60    0.333    [0.233, 0.483]    0.417
+first_word           20    0.050    [0.000, 0.150]    0.100
+mid_word             20    0.800    [0.650, 0.950]    0.900
+later                20    0.150    [0.000, 0.350]    0.250
+seen_seen            45    0.311    [0.200, 0.467]    0.378
+seen_unseen          15    0.400    [0.133, 0.667]    0.533
+
+=== E1: Hit@1 vs c_len — matcher `lemma` ===
+  c_len      N   poz.    Hit@1            CI 95%     seedy min-max    Hit@K  obcięte  lat.mean
+----------------------------------------------------------------------------------------------
+      0     60     60    0.050    [0.000, 0.100]       0.050-0.050    0.083       0%       145
+    250     60     60    0.300    [0.183, 0.433]       0.300-0.300    0.433       3%       285
+   1000     60     60    0.333    [0.217, 0.467]       0.333-0.333    0.417      13%       589
+   2000     60     60    0.317    [0.217, 0.450]       0.317-0.317    0.433      17%       993
+   5000     60     60    0.333    [0.233, 0.483]       0.333-0.333    0.417      27%      2336
+
+--- seen vs unseen (główny wykres tezy) ---
+  c_len                  seen                unseen
+---------------------------------------------------
+      0          0.044 (n=45)          0.067 (n=15)
+    250          0.267 (n=45)          0.400 (n=15)
+   1000          0.311 (n=45)          0.400 (n=15)
+   2000          0.289 (n=45)          0.400 (n=15)
+   5000          0.311 (n=45)          0.400 (n=15)
+
+--- segmenty ---
+  c_len      first_word        mid_word           later
+-------------------------------------------------------
+      0    0.000 (n=20)    0.150 (n=20)    0.000 (n=20)
+    250    0.000 (n=20)    0.700 (n=20)    0.200 (n=20)
+   1000    0.050 (n=20)    0.750 (n=20)    0.200 (n=20)
+   2000    0.050 (n=20)    0.750 (n=20)    0.150 (n=20)
+   5000    0.050 (n=20)    0.800 (n=20)    0.150 (n=20)
+
+=== E2: użyteczność sesyjna (c_len=5000) — matcher `lemma` ===
+kubełek               N    Hit@1            CI 95%    Hit@K
+-----------------------------------------------------------
+overall              60    0.333    [0.233, 0.483]    0.417
+first_word           20    0.050    [0.000, 0.150]    0.100
+mid_word             20    0.800    [0.650, 0.950]    0.900
+later                20    0.150    [0.000, 0.350]    0.250
+seen_seen            45    0.311    [0.200, 0.467]    0.378
+seen_unseen          15    0.400    [0.133, 0.667]    0.533
+
+Latencja: 870 ms mean / 545 p50 / 2938 p95 / 3142 max
+
+Wyniki: results/beamserach_updated/podcast_smoke_rerun/20261109_191333_gv_cb711723_smoke

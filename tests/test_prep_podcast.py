@@ -48,6 +48,44 @@ class TestCleanTranscript(unittest.TestCase):
         self.assertNotIn("\n\n\n", self.clean)
 
 
+class TestBracketedTimestampSpeakerLabels(unittest.TestCase):
+    """Format PDF-ów policja.pl po `pdftotext` (bez -layout): `[czas mówca]` w osobnej
+    linii, twarde łamanie wierszy i podział strony (`\\f` po pustej linii) w środku zdania.
+    Tekst wymyślony — ten sam kształt, nie ta sama treść."""
+
+    RAW = (
+        "[0:00:05 prowadząca]\n"
+        "Dzień dobry, dziś rozmawiamy\n"
+        "o pogodzie w górach.\n"
+        "[0:00:09 dr Jan Kowalski-Nowak]\n"
+        "Dzień dobry. Jutro rano będzie\n"
+        "\n"
+        "\fsłonecznie, a wieczorem spadnie deszcz.\n"
+        "\n"
+        "\f[00:01:23 Prowadząca]\n"
+        "Dziękuję.\n"
+        "\n"
+        "\f\n"
+    )
+
+    def setUp(self) -> None:
+        self.clean, self.info = clean_transcript(self.RAW)
+        self.paras = self.clean.strip().split("\n\n")
+
+    def test_labels_and_timestamps_removed(self) -> None:
+        for bad in ("[", "]", "0:00:05", "00:01:23", "prowadząca", "Prowadząca", "Kowalski-Nowak", "\f"):
+            self.assertNotIn(bad, self.clean, bad)
+        self.assertEqual(self.info["speaker_labels_removed"], 3)
+
+    def test_one_turn_per_line_page_break_joined(self) -> None:
+        self.assertEqual(self.paras, [
+            "Dzień dobry, dziś rozmawiamy o pogodzie w górach.",
+            "Dzień dobry. Jutro rano będzie słonecznie, a wieczorem spadnie deszcz.",
+            "Dziękuję.",
+        ])
+        self.assertEqual(normalize_corpus_text(self.clean), self.clean)
+
+
 class TestNormalizationIsIdentityOnExistingCorpora(unittest.TestCase):
     """Wprowadzenie `normalize_corpus_text` do `load_documents` nie może zmienić
     żadnego wcześniejszego wyniku: na istniejących korpusach musi być tożsamością."""

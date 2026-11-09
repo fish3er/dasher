@@ -25,6 +25,7 @@ import argparse
 import hashlib
 import json
 import logging
+import os
 import platform
 import random
 import statistics
@@ -493,6 +494,10 @@ def run(cfg: RunConfig, smoke: bool = False) -> Path:
                                     row["latency_ms"], cfg.latency_cap_ms,
                                     row["c_len"], row["prefix_tokens"],
                                 )
+                        # Twardy reset PC (zasilacz pod pełnym GPU) gubił bufor zapisu:
+                        # utrwalaj każdą pozycję, żeby przerwany run dało się policzyć.
+                        fh.flush()
+                        os.fsync(fh.fileno())
                         if i % 10 == 0 or i == len(positions):
                             logger.info(
                                 "[%s/%s seed=%d %s] %d/%d pozycji, %.0f s",

@@ -28,9 +28,16 @@ SEGMENTS = ("first_word", "mid_word", "later")
 ALPHABET = {s.lower() for s in UI_ALPHABET}
 
 
+INCLUDE_SMOKE = False          # --include-smoke: raport z katalogu smoke (weryfikacja robocza)
+BOOT_ITERS = 2000
+DRASTIC_DELTA = 0.05           # |Δ Hit@K| > 0.05 z CI bez zera = „drastyczna zmiana"
+DRASTIC_LAT_RATIO = 2.0        # p50 gv / legacy >= 2 (albo <= 1/2)
+
+
 def latest_run(corpus_dir: Path, search: str) -> Path | None:
     runs = sorted(d for d in corpus_dir.glob(f"*_{search}_*")
-                  if d.is_dir() and not d.name.endswith("_smoke") and (d / "summary.json").exists())
+                  if d.is_dir() and (INCLUDE_SMOKE or not d.name.endswith("_smoke"))
+                  and (d / "summary.json").exists())
     return runs[-1] if runs else None
 
 
@@ -79,6 +86,256 @@ def mcnemar(a: list[int], b: list[int]) -> tuple[int, int, float]:
 
 def key(r: dict) -> tuple:
     return (r["seed"], r["doc_id"], r["cursor"], r["c_len"])
+
+
+# ---------------------------------------------------------------------------
+# Porównanie sparowane legacy -> gv (te same pozycje, te same c_len)
+# ---------------------------------------------------------------------------
+
+def _boot(values: list[float], clusters: list) -> tuple[float, float]:
+    """CI 95% średniej z bootstrapu klastrowanego po (dokument, słowo) — TA SAMA funkcja
+    co w `eval_context.py`, nie kopia."""
+    from eval_context import bootstrap_ci
+    return bootstrap_ci(values, clusters, BOOT_ITERS, 0.05)
+
+
+def _hits(r: dict, metric: str, m: str) -> int:
+    rank = r.get(f"rank_{m}", 0)
+    return int(rank == 1) if metric == "h1" else int(0 < rank <= K)
+
+
+def paired_delta(pairs: list[tuple[dict, dict]], metric: str, m: str) -> dict:
+    """Δ = b − a (średnia), CI z bootstrapu klastrowanego, McNemar na wektorach trafień."""
+    a = [_hits(x, metric, m) for x, _ in pairs]
+    b = [_hits(y, metric, m) for _, y in pairs]
+    d = [float(y - x) for x, y in zip(a, b)]
+    if not pairs:
+        return {"n": 0}
+    lo, hi = _boot(d, [(x["doc_id"], x["word_index"]) for x, _ in pairs])
+    n01, n10, p = mcnemar(a, b)
+    delta = statistics.fmean(d)
+    return {"n": len(pairs), "a": statistics.fmean(a), "b": statistics.fmean(b), "d": delta,
+            "lo": lo, "hi": hi, "a_only": n01, "b_only": n10, "p": p,
+            "drastic": abs(delta) > DRASTIC_DELTA and (lo > 0 or hi < 0)}
+
+
+def _fmt_d(x: dict) -> str:
+    s = f"{x['d']:+.3f} [{x['lo']:+.3f}, {x['hi']:+.3f}]"
+    return f"**{s}**" if x["drastic"] else s
+
+
+def _mean(xs) -> float:
+    xs = [x for x in xs if x is not None]
+    return statistics.fmean(xs) if xs else float("nan")
+
+
+def paired_section(name: str, runs: dict, rows: dict, out: list[str]) -> dict:
+    A = {key(r): r for r in rows["legacy"]}
+    B = {key(r): r for r in rows["gv"]}
+    shared = sorted(set(A) & set(B))
+    c_lens = sorted({k[3] for k in shared})
+    src = f"`{runs['legacy']}/per_sample.jsonl` × `{runs['gv']}/per_sample.jsonl`"
+    verdict: dict = {"triggers": [], "segment_triggers": []}
+    out.append(f"\n### Paired comparison legacy → gv ({len(shared)} shared records)\n")
+    out.append(f"Source: {src}, paired on `(seed, doc_id, cursor, c_len)`. Δ = gv − legacy; 95% CI from "
+               f"the cluster bootstrap over `(doc_id, word_index)` (`eval_context.bootstrap_ci`, {BOOT_ITERS} "
+               f"iters); McNemar = exact two-sided test on the paired hit vectors (legacy-only / gv-only / p). "
+               f"**Bold** Δ: |Δ| > {DRASTIC_DELTA} and the CI excludes 0.")
+    matchers = [m for m in ("strict", "lemma") if f"rank_{m}" in rows["legacy"][0] and f"rank_{m}" in rows["gv"][0]]
+    for m in matchers:
+        out.append(f"\n#### Hit@1 / Hit@5 `{m}`\n")
+        out.append("| c_len | subset | N | H@1 legacy | H@1 gv | ΔH@1 [CI] | McNemar H@1 | H@5 legacy | H@5 gv | ΔH@5 [CI] | McNemar H@5 |")
+        out.append("|---|---|---|---|---|---|---|---|---|---|---|")
+        for c in c_lens:
+            for seg in ("overall",) + SEGMENTS:
+                pairs = [(A[k], B[k]) for k in shared if k[3] == c and (seg == "overall" or A[k]["segment"] == seg)]
+                if not pairs:
+                    continue
+                cells = []
+                for metric in ("h1", "h5"):
+                    x = paired_delta(pairs, metric, m)
+                    cells.append(f"{x['a']:.3f} | {x['b']:.3f} | {_fmt_d(x)} | {x['a_only']}/{x['b_only']}/{x['p']:.2g}")
+                    if x["drastic"]:
+                        tag = f"{m} {'Hit@1' if metric == 'h1' else 'Hit@5'} c_len={c} {seg}: Δ={x['d']:+.3f} [{x['lo']:+.3f}, {x['hi']:+.3f}]"
+                        (verdict["triggers"] if seg == "overall" else verdict["segment_triggers"]).append(tag)
+                out.append(f"| {c} | {seg} | {len(pairs)} | " + " | ".join(cells) + " |")
+
+    out.append(f"\n#### Latency per c_len (ms; same records; source: {src})\n")
+    out.append("`latency_ms`: legacy = `suggest_tokens` (tokenization outside the timer); gv = `search` + "
+               "`top_words` (lowercasing + tokenization of the context inside the timer).\n")
+    out.append("| c_len | N | legacy p50 | legacy p95 | gv p50 | gv p95 | p50 gv/legacy |")
+    out.append("|---|---|---|---|---|---|---|")
+    for c in c_lens + ["all"]:
+        ks = [k for k in shared if c == "all" or k[3] == c]
+        la = [A[k]["latency_ms"] for k in ks]
+        lb = [B[k]["latency_ms"] for k in ks]
+        ratio = pct(lb, 50) / pct(la, 50) if pct(la, 50) else float("nan")
+        if c == "all" and (ratio >= DRASTIC_LAT_RATIO or ratio <= 1 / DRASTIC_LAT_RATIO):
+            verdict["triggers"].append(f"latency p50 gv/legacy = {ratio:.2f}")
+        out.append(f"| {c} | {len(ks)} | {pct(la, 50):.0f} | {pct(la, 95):.0f} | {pct(lb, 50):.0f} | "
+                   f"{pct(lb, 95):.0f} | {ratio:.2f} |")
+    verdict["lat_ratio_by_c"] = {}
+    for c in c_lens:
+        ks = [k for k in shared if k[3] == c]
+        la, lb = [A[k]["latency_ms"] for k in ks], [B[k]["latency_ms"] for k in ks]
+        verdict["lat_ratio_by_c"][c] = pct(lb, 50) / pct(la, 50) if pct(la, 50) else float("nan")
+
+    out.append(f"\n#### Suggestion lists and context actually fed to the model (source: {src})\n")
+    out.append("`prefix_tokens`: legacy = BOS + context + `immediate_prefix` (rstrip at a word boundary); "
+               "gv = BOS + **lowercased** context cut back to the last space (the current word is regenerated). "
+               "At a word boundary both cover the same text, so the gv − legacy difference there is the "
+               "pure effect of lowercasing on the token count.\n")
+    out.append("| c_len | empty legacy | empty gv | mean #sugg. legacy | mean #sugg. gv | gv hit_cap | "
+               "c_len_eff legacy | c_len_eff gv | truncated | prefix tok legacy | prefix tok gv | "
+               "Δprefix word-boundary (mean, min..max) | Δprefix mid-word (mean) |")
+    out.append("|---|---|---|---|---|---|---|---|---|---|---|---|---|")
+    for c in c_lens:
+        ks = [k for k in shared if k[3] == c]
+        ra, rb = [A[k] for k in ks], [B[k] for k in ks]
+        wb = [B[k]["prefix_tokens"] - A[k]["prefix_tokens"] for k in ks if not A[k]["immediate_prefix"]]
+        mw = [B[k]["prefix_tokens"] - A[k]["prefix_tokens"] for k in ks if A[k]["immediate_prefix"]]
+        wb_s = f"{_mean(wb):+.1f} ({min(wb)}..{max(wb)})" if wb else "—"
+        out.append(
+            f"| {c} | {_mean(1.0 if not r['suggestions'] else 0.0 for r in ra):.3f} | "
+            f"{_mean(1.0 if not r['suggestions'] else 0.0 for r in rb):.3f} | "
+            f"{_mean(len(r['suggestions']) for r in ra):.2f} | {_mean(len(r['suggestions']) for r in rb):.2f} | "
+            f"{_mean(1.0 if r.get('hit_cap') else 0.0 for r in rb):.3f} | "
+            f"{_mean(r['c_len_effective'] for r in ra):.0f} | {_mean(r['c_len_effective'] for r in rb):.0f} | "
+            f"{_mean(1.0 if r['c_len_truncated'] else 0.0 for r in ra):.3f} | "
+            f"{_mean(r['prefix_tokens'] for r in ra):.0f} | {_mean(r['prefix_tokens'] for r in rb):.0f} | "
+            f"{wb_s} | {_mean(mw):+.1f} |")
+
+    # Kształt krzywej: przyrost między c_len w obrębie algorytmu (te same pozycje) i różnica przyrostów.
+    if len(c_lens) >= 3:
+        pos_keys = sorted({k[:3] for k in shared})
+        widx = {k[:3]: A[k]["word_index"] for k in shared}
+        segs = [(c_lens[0], c_lens[1]), (c_lens[1], c_lens[-1])]
+        out.append(f"\n#### Curve shape: gain between c_len points, same positions (source: {src})\n")
+        out.append("Gain = Hit(c_hi) − Hit(c_lo) per position; DiD = gain gv − gain legacy. CI: cluster bootstrap. "
+                   "A shape change = the DiD CI excludes 0.\n")
+        out.append("| matcher | metric | c_lo → c_hi | N | gain legacy [CI] | gain gv [CI] | DiD [CI] |")
+        out.append("|---|---|---|---|---|---|---|")
+        for m in matchers:
+            for metric in ("h1", "h5"):
+                for lo_c, hi_c in segs:
+                    ks = [p for p in pos_keys if p + (lo_c,) in A and p + (hi_c,) in A
+                          and p + (lo_c,) in B and p + (hi_c,) in B]
+                    if not ks:
+                        continue
+                    cl = [(p[1], widx[p]) for p in ks]
+                    ga = [float(_hits(A[p + (hi_c,)], metric, m) - _hits(A[p + (lo_c,)], metric, m)) for p in ks]
+                    gb = [float(_hits(B[p + (hi_c,)], metric, m) - _hits(B[p + (lo_c,)], metric, m)) for p in ks]
+                    did = [y - x for x, y in zip(ga, gb)]
+                    ca, cb, cd = _boot(ga, cl), _boot(gb, cl), _boot(did, cl)
+                    shape = cd[0] > 0 or cd[1] < 0
+                    if shape:
+                        verdict["triggers"].append(
+                            f"curve shape {m} {metric} {lo_c}→{hi_c}: DiD={_mean(did):+.3f} [{cd[0]:+.3f}, {cd[1]:+.3f}]")
+                    dtxt = f"{_mean(did):+.3f} [{cd[0]:+.3f}, {cd[1]:+.3f}]"
+                    out.append(f"| {m} | {'Hit@1' if metric == 'h1' else 'Hit@5'} | {lo_c} → {hi_c} | {len(ks)} | "
+                               f"{_mean(ga):+.3f} [{ca[0]:+.3f}, {ca[1]:+.3f}] | {_mean(gb):+.3f} [{cb[0]:+.3f}, {cb[1]:+.3f}] | "
+                               f"{'**' + dtxt + '**' if shape else dtxt} |")
+
+    drastic = bool(verdict["triggers"])
+    out.append(f"\n#### Verdict for `{name}`: drastic change legacy → gv: **{'YES' if drastic else 'NO'}**\n")
+    out.append(f"Criteria: overall |ΔHit@1| or |ΔHit@5| > {DRASTIC_DELTA} with the CI excluding 0 (any c_len, "
+               f"strict or lemma); latency p50 ratio ≥ {DRASTIC_LAT_RATIO:g}× either way; curve-shape DiD CI excluding 0.")
+    for t in verdict["triggers"]:
+        out.append(f"- {t}")
+    if verdict["segment_triggers"]:
+        out.append("\nSegment-level differences above the threshold (reported, not part of the overall verdict):")
+        for t in verdict["segment_triggers"]:
+            out.append(f"- {t}")
+    verdict["drastic"] = drastic
+    return verdict
+
+
+def ablation_section(name: str, cdir: Path, runs: dict, rows: dict, out: list[str]) -> None:
+    """Ablacje gv (`tools/ablate_gv.py`) na podzbiorze TYCH SAMYCH pozycji co pełny run."""
+    for d in sorted(cdir.glob("ablation_*")):
+        p = d / "per_sample.jsonl"
+        if not p.exists():
+            continue
+        abl = {key(r): r for r in load_rows(d)}
+        meta = json.loads((d / "ablation.json").read_text(encoding="utf-8")) if (d / "ablation.json").exists() else {}
+        A = {key(r): r for r in rows.get("legacy", [])}
+        B = {key(r): r for r in rows.get("gv", [])}
+        ks = sorted(set(abl) & set(A) & set(B))
+        if not ks:
+            continue
+        c_lens = sorted({k[3] for k in ks})
+        out.append(f"\n### Ablation `{d.name}` (`{p}`)\n")
+        out.append(f"gv overrides: `{meta.get('gv_overrides')}`; positions: {meta.get('n_positions')} drawn from "
+                   f"`{meta.get('from_run')}` (same `(seed, doc_id, cursor)`); compared with `{runs['legacy']}` and "
+                   f"`{runs['gv']}` on {len(ks)} shared records. Gap closed = (abl − gv) / (legacy − gv).\n")
+        out.append("| c_len | matcher | metric | N | legacy | gv | gv-ablated | Δ abl − gv [CI] | gap closed |")
+        out.append("|---|---|---|---|---|---|---|---|---|")
+        for c in c_lens + ["all"]:
+            sub = [k for k in ks if c == "all" or k[3] == c]
+            for m in ("strict", "lemma"):
+                if f"rank_{m}" not in abl[sub[0]]:
+                    continue
+                for metric in ("h1", "h5"):
+                    x = paired_delta([(B[k], abl[k]) for k in sub], metric, m)
+                    leg = _mean(_hits(A[k], metric, m) for k in sub)
+                    gap = leg - x["a"]
+                    closed = (x["b"] - x["a"]) / gap if abs(gap) > 1e-9 else float("nan")
+                    out.append(f"| {c} | {m} | {'Hit@1' if metric == 'h1' else 'Hit@5'} | {len(sub)} | {leg:.3f} | "
+                               f"{x['a']:.3f} | {x['b']:.3f} | {x['d']:+.3f} [{x['lo']:+.3f}, {x['hi']:+.3f}] | "
+                               f"{closed:.0%} |" if math.isfinite(closed) else
+                               f"| {c} | {m} | {'Hit@1' if metric == 'h1' else 'Hit@5'} | {len(sub)} | {leg:.3f} | "
+                               f"{x['a']:.3f} | {x['b']:.3f} | {x['d']:+.3f} [{x['lo']:+.3f}, {x['hi']:+.3f}] | — |")
+        la = [B[k]["latency_ms"] for k in ks]
+        lb = [abl[k]["latency_ms"] for k in ks]
+        pa = [B[k]["prefix_tokens"] for k in ks]
+        pb = [abl[k]["prefix_tokens"] for k in ks]
+        out.append(f"\nLatency p50 gv {pct(la, 50):.0f} ms vs ablated {pct(lb, 50):.0f} ms; mean prefix_tokens gv "
+                   f"{_mean(pa):.0f} vs ablated {_mean(pb):.0f}.")
+
+
+def legacy_check_section(new: Path, old: Path, out: list[str]) -> None:
+    """Czy legacy się zmienił: ten sam config, pozycje sparowane po (doc_id, word_index, cursor, c_len)."""
+    if not (new.exists() and old.exists()):
+        return
+    k4 = lambda r: (r["doc_id"], r["word_index"], r["cursor"], r["c_len"])  # noqa: E731
+    a = [json.loads(l) for l in new.open(encoding="utf-8")]
+    b = {k4(r): r for r in (json.loads(l) for l in old.open(encoding="utf-8"))}
+    sh = [r for r in a if k4(r) in b]
+    same = sum(1 for r in sh if r["suggestions"] == b[k4(r)]["suggestions"])
+    same_sc = sum(1 for r in sh if r["scores"] == b[k4(r)]["scores"])
+    la = [r["latency_ms"] for r in sh]
+    lb = [b[k4(r)]["latency_ms"] for r in sh]
+    out.append("\n## Legacy regression check (Lalka)\n")
+    out.append(f"`{new}` ({len(a)} records, partial run from 2026-10-27, branch `beamserach-updated`) vs `{old}` "
+               f"(2026-10-04, commit `ec315e1`), paired on `(doc_id, word_index, cursor, c_len)`: "
+               f"**{len(sh)}/{len(a)}** shared, **{same}/{len(sh)}** identical suggestion lists, {same_sc}/{len(sh)} "
+               f"identical score lists; latency p50 {pct(la, 50):.0f} ms vs {pct(lb, 50):.0f} ms. "
+               f"Legacy did not change, so the Lalka legacy run is not recomputed.")
+
+
+def gpu_section(cdir: Path, out: list[str]) -> None:
+    import csv
+
+    logs = sorted(cdir.glob("gpu_monitor*.csv"))
+    if not logs:
+        return
+    out.append("\n### GPU / CPU during the runs\n")
+    out.append("| log | samples | span | edge max °C | junction max °C | mem max °C | PPT max / mean W | "
+               "sclk min..max MHz | fan max rpm | CPU Tctl max °C |")
+    out.append("|---|---|---|---|---|---|---|---|---|---|")
+    for p in logs:
+        with p.open(encoding="utf-8") as fh:
+            rs = [r for r in csv.DictReader(fh) if r.get("junction_c")]
+        if not rs:
+            continue
+        f = lambda col: [float(r[col]) for r in rs if r.get(col) not in (None, "")]  # noqa: E731
+        busy = [r for r in rs if float(r["gpu_busy_pct"] or 0) > 50]
+        out.append(f"| `{p}` | {len(rs)} | {rs[0]['ts']} → {rs[-1]['ts']} | {max(f('edge_c')):.0f} | "
+                   f"{max(f('junction_c')):.0f} | {max(f('mem_c')):.0f} | {max(f('ppt_w')):.0f} / "
+                   f"{_mean(float(r['ppt_w']) for r in busy) if busy else float('nan'):.0f} (busy>50%) | "
+                   f"{min(f('sclk_mhz')):.0f}..{max(f('sclk_mhz')):.0f} | {max(f('fan_rpm')):.0f} | "
+                   f"{max(f('cpu_tctl_c')) if f('cpu_tctl_c') else float('nan'):.0f} |")
+    out.append("\nLimits (amdgpu hwmon): edge crit 100 °C, junction crit 110 °C, mem crit 100 °C, PPT cap 264 W.")
 
 
 def corpus_section(name: str, cdir: Path, out: list[str]) -> dict:
@@ -168,6 +425,10 @@ def corpus_section(name: str, cdir: Path, out: list[str]) -> dict:
             n01, n10, p = mcnemar(x, y)
             out.append(f"| {label} | {len(ks)} | {n01} | {n10} | {p:.2g} |")
         res["shared"] = len(shared)
+        res["verdict"] = paired_section(name, runs, rows, out)
+
+    ablation_section(name, cdir, runs, rows, out)
+    gpu_section(cdir, out)
 
     sim = cdir / "sim.json"
     if sim.exists():
@@ -204,7 +465,15 @@ def main(argv=None) -> int:
     ap.add_argument("--source", type=Path, default=Path("corpus_context_podcast_pl/source.json"))
     ap.add_argument("--bench", type=Path, default=Path("notes/diag/bench_gv.json"))
     ap.add_argument("--out", type=Path, default=Path("notes/beamserach_updated_report.md"))
+    ap.add_argument("--include-smoke", action="store_true", help="bierz też runy `*_smoke` (weryfikacja robocza)")
+    ap.add_argument("--boot-iters", type=int, default=BOOT_ITERS)
+    ap.add_argument("--legacy-check", default=(
+        "results/beamserach_updated/lalka/20261027_080217_legacy_bfa05223/per_sample.jsonl,"
+        "results/20261004_102039_26685e6a/per_sample.jsonl"),
+        help="NOWY,STARY per_sample.jsonl legacy do kontroli regresji (puste = pomiń)")
     args = ap.parse_args(argv)
+    globals()["INCLUDE_SMOKE"] = args.include_smoke
+    globals()["BOOT_ITERS"] = args.boot_iters
 
     out: list[str] = ["# beamserach-updated — legacy vs Gaines & Vertanen (gv)", ""]
     src = json.loads(args.source.read_text(encoding="utf-8")) if args.source.exists() else {}
@@ -234,6 +503,10 @@ def main(argv=None) -> int:
             f"`{m}` {v['latency_ms']['mean']:.0f} ms mean, {v['decode_calls_mean']:.2f} decode calls" for m, v in e.items())
             + f". kv_mode: multi_seq {b['kv_mode']['multi_seq']['mean']:.0f} ms vs sequential "
               f"{b['kv_mode']['sequential']['mean']:.0f} ms (search, mean).")
+
+    if args.legacy_check:
+        new, old = (Path(x) for x in args.legacy_check.split(","))
+        legacy_check_section(new, old, out)
 
     results = {}
     for name in args.corpora.split(","):

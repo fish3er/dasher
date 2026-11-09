@@ -1,0 +1,18 @@
+{
+  "timestamp": "2026-11-09T21:13:03",
+  "python": "3.14.8",
+  "platform": "Linux-7.2.10-200.fc44.x86_64-x86_64-with-glibc2.43",
+  "llama_cpp_python": "0.3.28",
+  "model_path": "models/google_gemma-4-E4B-it-Q4_K_M.gguf",
+  "model_sha256": "51865750adafd22de56994a343d5a887cc1a589b9bae41d62b748c8bd0ca9c76",
+  "model_size_bytes": 5405168384,
+  "backend": "Vulkan",
+  "gpu": "AMD Radeon RX 6800 XT (RADV NAVI21)",
+  "git_commit": "c1efa42cfa48b6eab706b0b63216931bb025e988",
+  "git_branch": "beamserach-updated",
+  "git_dirty": true,
+  "kv_modes": [
+    "multi_seq"
+  ],
+  "smoke": false
+}

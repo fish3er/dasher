@@ -12,6 +12,7 @@ results/.model_hash_cache.json
 
 # runy smoke to weryfikacja robocza, nie wynik
 results/*_smoke/
+results/**/*_smoke/
 
 # częściowe snapshoty trwającego runu
 results/partial_*/
@@ -19,6 +20,8 @@ results/partial_*/
 # transkrypt podcastu (prawa autorskie; repo jest publiczne) — śledzone tylko README i source.json
 corpus_context_podcast_pl/*.txt
 corpus_context_podcast_pl/*.meta.json
+# pobrane PDF-y i surowy tekst z pdftotext (też objęte prawami autorskimi)
+corpus_context_podcast_pl/raw/
 
 # indeks słownika G&V (gv_index.py) — lokalny, odtwarzalny z GGUF-a
 cache/

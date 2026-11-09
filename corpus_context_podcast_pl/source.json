@@ -1,1 +1,13 @@
-{"title": "", "url": "", "published": "", "transcript_type": "verbatim|edited|asr", "seen_risk": null, "notes": ""}
+{
+ "title": "Policja ZAPRASZA: #zaginioneNIEzapomniane, rozmowa z dr Joanną Stojer-Polańską, cz. 1 i cz. 2 (II edycja kampanii, 2026)",
+ "url": [
+  "https://www.policja.pl/download/1/36939/zaginioneNIEzapomniane-cz1-transkrypcja.pdf",
+  "https://www.policja.pl/download/1/36725/zaginioneNIEzapomniane-cz2-transkrypcja.pdf"
+ ],
+ "published": "2026-05",
+ "published_detail": "Transkrypcje PDF: cz. 1 utworzona 2026-05-26 08:16 CEST, cz. 2 2026-05-27 11:08 CEST (pdfinfo CreationDate; zgodne z nagłówkiem HTTP Last-Modified). Odcinki audio wg katalogu podcastów (nie zweryfikowane na policja.pl): cz. 1 2026-05-21, cz. 2 2026-05-25.",
+ "transcript_type": "edited",
+ "seen_risk": "low",
+ "seen_risk_reason": "Tekst opublikowano w maju 2026, ok. 7-8 tygodni po wydaniu Gemma 4 (wagi E2B/E4B/31B/26B A4B: 2026-03-31 wg ai.google.dev/gemma/docs/releases; premiera publiczna 2026-04-02). Odcięcie danych treningowych poprzedza wydanie, więc ten tekst nie mógł trafić do treningu. Ryzyko resztkowe dotyczy tematu, nie tekstu: rozmówczyni wypowiadała się publicznie wcześniej (książki, wywiady), a policja.pl ma też transkrypcję innego odcinka z tej kampanii (download/1/39071), więc podobne sformułowania mogły się pojawić w danych przed 2026-03.",
+ "notes": "Korpus = cz. 1 + cz. 2 sklejone w tej kolejności (tools/assemble_podcast.py). Wycięte zapowiedzi (teaser) z początku obu części: blok rozmówczyni przed pierwszą kwestią prowadzącej (cz. 1: [0:00:00] przed [0:01:09], 131 słów; cz. 2: [00:00:01] przed [00:01:23], 118 słów). 88/120 i 65/107 ich 12-gramów powtarza się dosłownie w dalszej rozmowie. Po wycięciu: 0 powtórzonych n-gramów >= 12 słów. Transkrypcja jest redagowana (interpunkcja, wielkie litery, bez wtrąceń typu 'yyy'), stąd 'edited'."
+}

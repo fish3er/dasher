@@ -1,8 +1,10 @@
 """Phase 4: surowy transkrypt podcastu -> korpus w formacie istniejących korpusów.
 
 Wejście jest z założenia brudne (wklejone ręcznie): etykiety mówców (`Marcin:`,
-`GOŚĆ:`, `[Speaker 1]`), znaczniki czasu (`[00:12:34]`, `00:12`, `(12:34)`), URL-e,
-emoji, twarde spacje i znaki zerowej szerokości, twarde łamanie linii.
+`GOŚĆ:`, `[Speaker 1]`, `[0:05:43 prowadząca]` — czas + mówca w jednym nawiasie, jak
+w PDF-ach policja.pl), znaczniki czasu (`[00:12:34]`, `00:12`, `(12:34)`), URL-e,
+emoji, twarde spacje i znaki zerowej szerokości, twarde łamanie linii, podziały stron
+`\\f` z `pdftotext` (sklejane — strona urywa się w środku zdania).
 
 Wyjście: `podcast_clean.txt` — jedna wypowiedź (tura mówcy) / akapit na linię,
 akapity rozdzielone pustą linią, normalizacja `eval_context.normalize_corpus_text`
@@ -35,6 +37,13 @@ MIN_TOKENS = 12000            # Lalka: 12 973 tokenów
 
 _TS = r"\d{1,2}:\d{2}(?::\d{2})?(?:[.,]\d{1,3})?"
 _TS_BRACKETED = re.compile(rf"[\[\(]\s*{_TS}\s*[\]\)]")
+# znacznik czasu + mówca w JEDNYM nawiasie, osobna linia (PDF-y policja.pl):
+# `[0:05:43 prowadząca]`, `[00:00:01 dr Joanna Stojer-Polańska]`
+_SPEAKER_TS_BRACKETED = re.compile(rf"^\s*\[\s*{_TS}\s+([^\]\d][^\]]{{0,60}}?)\s*\]\s*")
+# podział strony z pdftotext: `\f` na początku pierwszej linii nowej strony, zwykle po pustej
+# linii. To NIE jest koniec akapitu (strona urywa się w środku zdania), więc łamanie strony
+# zamieniamy na zwykłe łamanie linii, które `clean_transcript` skleja w jedną wypowiedź.
+_PAGE_BREAK = re.compile(r"[^\S\n\f]*\n\s*\f[^\S\n]*")
 _TS_LEADING = re.compile(rf"^\s*{_TS}\s*(?:-->\s*{_TS})?\s*[-–—|:]?\s*")
 _SRT_INDEX = re.compile(r"^\s*\d+\s*$")
 _URL = re.compile(r"(?:https?://|www\.)\S+", re.IGNORECASE)
@@ -62,6 +71,7 @@ def _strip_line(line: str) -> str:
 def clean_transcript(raw: str) -> tuple[str, dict]:
     """Zwraca (tekst po normalizacji, statystyki czyszczenia)."""
     text = unicodedata.normalize("NFC", raw).replace("\r\n", "\n").replace("\r", "\n")
+    text = _PAGE_BREAK.sub("\n", text).replace("\f", "\n")
     text = re.sub(r"[​‌‍⁠﻿]", "", text)
     text = re.sub(r"[   ]", " ", text)
     lines = [_strip_line(l) for l in text.split("\n")]
@@ -83,7 +93,7 @@ def clean_transcript(raw: str) -> tuple[str, dict]:
     for line in lines:
         if _SRT_INDEX.match(line) or "-->" in line:
             continue
-        m = _SPEAKER_GENERIC.match(line)
+        m = _SPEAKER_TS_BRACKETED.match(line) or _SPEAKER_GENERIC.match(line)
         if m:
             close()
             line = line[m.end():]

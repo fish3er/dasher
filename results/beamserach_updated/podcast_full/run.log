@@ -1,0 +1,22 @@
+2026-11-09 19:56:58,360 INFO eval_context: Wczytano 1 dokumentów, łącznie 52564 kandydujących pozycji targetów
+2026-11-09 19:56:58,452 INFO beam_search: Ładowanie modelu GGUF: models/google_gemma-4-E4B-it-Q4_K_M.gguf (n_gpu_layers=-1, n_ctx=16384)
+llama_context: n_ctx_seq (16384) < n_ctx_train (131072) -- the full capacity of the model will not be utilized
+llama_kv_cache_iswa: using full-size SWA cache (ref: https://github.com/ggml-org/llama.cpp/pull/13194#issuecomment-2868343055)
+llama_kv_cache: the V embeddings have different sizes across layers and FA is not enabled - padding V cache to 1024
+llama_kv_cache: the V embeddings have different sizes across layers and FA is not enabled - padding V cache to 1024
+2026-11-09 19:57:13,115 INFO beam_search: Model załadowany (n_vocab=262144, eos=1, n_seq_max=64).
+2026-11-09 19:57:13,278 INFO eval_context: [legacy/multi_seq] rozgrzewka gotowa
+2026-11-09 19:57:21,337 INFO eval_context: [legacy/multi_seq seed=1 podcast_clean] 10/600 pozycji, 23 s
+2026-11-09 19:57:34,057 INFO eval_context: [legacy/multi_seq seed=1 podcast_clean] 20/600 pozycji, 36 s
+2026-11-09 19:57:50,777 INFO eval_context: [legacy/multi_seq seed=1 podcast_clean] 30/600 pozycji, 52 s
+2026-11-09 19:58:10,782 INFO eval_context: [legacy/multi_seq seed=1 podcast_clean] 40/600 pozycji, 72 s
+2026-11-09 19:58:32,672 INFO eval_context: [legacy/multi_seq seed=1 podcast_clean] 50/600 pozycji, 94 s
+2026-11-09 19:58:59,585 INFO eval_context: [legacy/multi_seq seed=1 podcast_clean] 60/600 pozycji, 121 s
+2026-11-09 19:59:30,812 INFO eval_context: [legacy/multi_seq seed=1 podcast_clean] 70/600 pozycji, 152 s
+2026-11-09 20:00:06,555 INFO eval_context: [legacy/multi_seq seed=1 podcast_clean] 80/600 pozycji, 188 s
+2026-11-09 20:00:43,048 INFO eval_context: [legacy/multi_seq seed=1 podcast_clean] 90/600 pozycji, 225 s
+2026-11-09 20:01:19,764 INFO eval_context: [legacy/multi_seq seed=1 podcast_clean] 100/600 pozycji, 261 s
+2026-11-09 20:01:56,258 INFO eval_context: [legacy/multi_seq seed=1 podcast_clean] 110/600 pozycji, 298 s
+2026-11-09 20:02:37,496 INFO eval_context: [legacy/multi_seq seed=1 podcast_clean] 120/600 pozycji, 339 s
+2026-11-09 20:03:20,625 INFO eval_context: [legacy/multi_seq seed=1 podcast_clean] 130/600 pozycji, 382 s
+2026-11-09 20:04:04,977 INFO eval_context: [legacy/multi_seq seed=1 podcast_clean] 140/600 pozycji, 427 s
