@@ -36,6 +36,9 @@ class DwellTracker:
         leave_grace_ms: float = 100.0,
         clock: Callable[[], float] = time.perf_counter,
     ) -> None:
+        """Czasy w ms: `dwell_ms` do wyboru, `cooldown_ms` przerwy przed kolejnym wyborem tego
+        samego elementu, `leave_grace_ms` karencji po zjechaniu z elementu. `clock` do testów.
+        """
         self.dwell_ms = dwell_ms
         self.cooldown_ms = cooldown_ms
         self.leave_grace_ms = leave_grace_ms
@@ -43,6 +46,7 @@ class DwellTracker:
         self._clear()
 
     def _clear(self) -> None:
+        """Stan spoczynku: brak aktywnego elementu i kandydata na następny."""
         self.item: Hashable | None = None
         self.content: Hashable | None = None
         self.phase = PHASE_IDLE
@@ -54,6 +58,7 @@ class DwellTracker:
         self._pending_since = 0.0
 
     def _begin(self, item: Hashable, content: Hashable | None, start: float) -> None:
+        """Zacznij odliczanie dwell dla `item` od chwili `start`."""
         self.item, self.content = item, content
         self.phase = PHASE_DWELL
         self._phase_start = self._hover_start = start
@@ -66,6 +71,9 @@ class DwellTracker:
         self._clear()
 
     def update(self, item: Hashable | None, content: Hashable | None = None) -> DwellEvent | None:
+        """Jedna klatka: `item` pod kursorem (albo None) i jego `content`. Zwraca zdarzenie
+        wyboru (EVENT_FIRE), anulowania (EVENT_CANCEL) albo None.
+        """
         now = self._clock()
 
         if self.item is None:
@@ -107,6 +115,9 @@ class DwellTracker:
         return event
 
     def _advance(self, now: float) -> DwellEvent | None:
+        """Kursor stoi na aktywnym elemencie: odlicz dwell albo cooldown i zwróć EVENT_FIRE,
+        gdy dwell się dopełnił.
+        """
         if self.phase == PHASE_COOLDOWN:
             if (now - self._phase_start) * 1000.0 >= self.cooldown_ms:
                 self.phase = PHASE_DWELL

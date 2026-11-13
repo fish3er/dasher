@@ -18,7 +18,6 @@ from typing import Callable, Sequence
 from beam_search import LEVEL_MID_WORD, LEVEL_WORD_BOUNDARY, Suggestion, text_level
 from token_tree import (
     DEFAULT_WIDTHS,
-    EMPTY_ROOT,
     MAX_DEPTH,
     TreeNode,
     grow_tree,
@@ -44,10 +43,12 @@ _BOS = 0
 
 
 def _chunk(remainder: str) -> str:
+    """„Token” atrapy: pierwsze 3 litery reszty słowa."""
     return remainder[:3]
 
 
 def _weight(context: str, token: str) -> float:
+    """Deterministyczna pseudolosowa waga pary (kontekst, token) z hasha."""
     digest = hashlib.sha256(f"{context}|{token}".encode("utf-8")).digest()
     u = int.from_bytes(digest[:4], "big") / 0xFFFFFFFF
     return (0.1 + u) ** 3
@@ -55,18 +56,21 @@ def _weight(context: str, token: str) -> float:
 
 class FakeBackend:
     def __init__(self, latency_ms: float = 150.0) -> None:
+        """`latency_ms` = sztuczne opóźnienie każdego etapu."""
         self.latency_ms = float(latency_ms)
         self._pieces: dict[int, str] = {}
 
     # -- tokeny ---------------------------------------------------------------
 
     def _piece_id(self, piece: str) -> int:
+        """Stabilny id dla kawałka tekstu (hash) i zapamiętanie go do dekodowania."""
         digest = hashlib.sha256(piece.encode("utf-8")).digest()
         token_id = _BASE_ID + int.from_bytes(digest[:5], "big")
         self._pieces[token_id] = piece
         return token_id
 
     def _decode(self, ids: Sequence[int]) -> str:
+        """Tekst z id: kawałki z `_piece_id` albo kody znaków prefiksu, bez BOS."""
         out: list[str] = []
         for token_id in ids:
             if token_id == _BOS:
@@ -75,14 +79,17 @@ class FakeBackend:
         return "".join(out)
 
     def prefix_ids(self, text: str) -> tuple[list[int], str]:
+        """Jak `BeamSearch.prefix_ids`: BOS + kody znaków, końcowa spacja ucięta."""
         level = text_level(text)
         tok_text = text.rstrip() if level == LEVEL_WORD_BOUNDARY else text
         return [_BOS] + [ord(c) for c in tok_text], level
 
     def warmup(self) -> None:
+        """Atrapa nie ma czego rozgrzewać."""
         pass
 
     def _sleep(self) -> None:
+        """Udaj czas liczenia jednego etapu."""
         if self.latency_ms > 0:
             time.sleep(self.latency_ms / 1000.0)
 
@@ -90,19 +97,25 @@ class FakeBackend:
 
     @staticmethod
     def _partial(text: str) -> str:
+        """Niedokończone słowo na końcu tekstu (małymi literami), albo pusty napis."""
         m = re.search(r"[^\W\d_]+$", text)
         return m.group().lower() if m else ""
 
     @staticmethod
     def _last_word(text: str) -> str:
+        """Ostatnie słowo tekstu małymi literami (kontekst dla następnych słów)."""
         words = re.findall(r"[^\W\d_]+", text)
         return words[-1].lower() if words else ""
 
     def _next_words(self, context: str, count: int) -> list[str]:
+        """`count` słów słownika o największej wadze po słowie `context`."""
         ranked = sorted(VOCAB, key=lambda w: (-_weight(context, w), w))
         return ranked[:count]
 
     def _candidates(self, text: str, first_after_space: bool) -> list[tuple[int, float]]:
+        """Pseudo-rozkład następnego tokenu po tekście: kawałki dokończeń bieżącego słowa
+        i początki następnych słów, jako (id, logprob) malejąco.
+        """
         partial = "" if first_after_space else self._partial(text)
         tokens: set[str] = set()
         if partial:
@@ -125,19 +138,6 @@ class FakeBackend:
 
     # -- API ------------------------------------------------------------------
 
-    def token_tree(
-        self,
-        prefix: str,
-        widths: Sequence[int] = DEFAULT_WIDTHS,
-        top_p: float = 1.0,
-        max_leaves: int | None = None,
-    ) -> TreeNode:
-        ids, _ = self.prefix_ids(prefix)
-        after_whitespace = not prefix or prefix[-1].isspace()
-        return self.extend_tree(
-            ids, EMPTY_ROOT, widths, len(widths), after_whitespace, top_p, max_leaves
-        )
-
     def extend_tree(
         self,
         ids: Sequence[int],
@@ -148,13 +148,16 @@ class FakeBackend:
         top_p: float = 1.0,
         max_leaves: int | None = None,
     ) -> TreeNode:
+        """Jak `BeamSearch.extend_tree` (bez cofania do początku słowa), na pseudo-rozkładzie."""
         self._sleep()
         ids = list(ids)
 
         def decode(token_id: int) -> bytes:
+            """Bajty tekstu tokenu atrapy."""
             return self._pieces[token_id].encode("utf-8")
 
         def expand(paths: list[tuple[int, ...]], width: int) -> list[tuple[TreeNode, ...]]:
+            """Dzieci każdego ogona: pseudo-rozkład po tekście prefiksu + ogona."""
             out = []
             for path in paths:
                 first = after_whitespace and not path
@@ -177,6 +180,9 @@ class FakeBackend:
         top_p: float = 1.0,
         should_abort: Callable[[], bool] | None = None,
     ) -> list[Suggestion]:
+        """Jak `CachedBeamSearch.suggest_tokens`: dokończenia bieżącego słowa ze słownika albo
+        następne słowa, według pseudolosowych wag.
+        """
         self._sleep()
         text = self._decode(prefix_tokens)
         if not text:
@@ -195,17 +201,3 @@ class FakeBackend:
             for w in self._next_words(context, n)
         ]
 
-    def suggest(
-        self,
-        prefix: str,
-        n: int = 5,
-        beam_width: int = 5,
-        top_k: int | None = None,
-        top_p: float = 1.0,
-    ) -> list[Suggestion]:
-        if not prefix:
-            return []
-        level = LEVEL_WORD_BOUNDARY if prefix[-1].isspace() else LEVEL_MID_WORD
-        tok_prefix = prefix.rstrip() if level == LEVEL_WORD_BOUNDARY else prefix
-        ids = [_BOS] + [ord(c) for c in tok_prefix]
-        return self.suggest_tokens(ids, level, n, beam_width, top_k, top_p)

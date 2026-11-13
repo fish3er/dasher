@@ -28,10 +28,12 @@ class View:
 
     @property
     def range(self) -> float:
+        """Wysokość widoku w układzie korzenia (1 = całe pasmo, < 1 = zoom)."""
         return self.high - self.low
 
     @property
     def center(self) -> float:
+        """Środek widoku w układzie korzenia (wysokość celownika)."""
         return (self.low + self.high) / 2
 
 
@@ -86,6 +88,9 @@ class SteerGate:
     SPEED_TAU = 0.05
 
     def __init__(self, grace: float = 0.15, arm_speed: float = 600.0) -> None:
+        """`grace` [s] = minimalny czas w paśmie, `arm_speed` [px/s] = prędkość kursora, poniżej
+        której bramka się otwiera.
+        """
         self.grace = grace
         self.arm_speed = arm_speed
         self.armed = False
@@ -94,6 +99,9 @@ class SteerGate:
         self._speed = 0.0
 
     def update(self, inside: bool, x: float, y: float, now: float) -> bool:
+        """Jedna klatka: czy kursor (`x`, `y`) w paśmie już steruje. Wyjście z pasma zamyka
+        bramkę i zeruje pomiar prędkości.
+        """
         if not inside:
             self.armed = False
             self._entered_at = None
@@ -117,14 +125,17 @@ class Steering:
     """Wygładzona prędkość + krok widoku."""
 
     def __init__(self) -> None:
+        """Start w spoczynku: zerowa prędkość i winieta."""
         self.vel_x = 0.0
         self.vel_y = 0.0
         self.speed = 0.0
 
     def stop(self) -> None:
+        """Zatrzymaj widok i wygaś winietę od razu (np. po wyborze z paska)."""
         self.vel_x = self.vel_y = self.speed = 0.0
 
     def _ease_vignette(self, goal: float, k: float) -> None:
+        """Przybliż siłę winiety (`speed`) do `goal` ze stałą czasową `VIGNETTE_TAU`."""
         # Winieta rośnie i maleje płynnie — skokowa zmiana pola widzenia sama
         # w sobie jest bodźcem (Fernandes & Feiner: zmiana ma być „subtle”).
         self.speed += (goal - self.speed) * (1.0 - math.exp(-k / 60.0 / VIGNETTE_TAU))
@@ -207,6 +218,7 @@ class Steering:
 
     @staticmethod
     def _set_range(view: View, new_range: float) -> None:
+        """Ustaw wysokość widoku na `new_range`, zachowując jego środek."""
         center = view.center
         view.low = center - new_range / 2
         view.high = center + new_range / 2
@@ -216,6 +228,7 @@ class ViewEase:
     """Krótki powrót widoku na całe pasmo po wyborze z paska."""
 
     def __init__(self, view: View, now: float, duration: float = 0.15) -> None:
+        """Animacja od bieżącego widoku do całego pasma, start `now`, czas `duration` [s]."""
         self.start = (view.low, view.high)
         self.t0 = now
         self.duration = duration

@@ -25,6 +25,7 @@ class BarItem:
 
 
 def letter_items() -> list[BarItem]:
+    """Elementy paska liter: alfabet polski, potem spacja (etykieta ␣) i interpunkcja."""
     items = [BarItem(c, c, c) for c in LETTERS]
     items += [BarItem(c, SPACE_LABEL if c == " " else c, c) for c in SPECIALS]
     return items
@@ -53,6 +54,7 @@ def word_items(typed: str, suggestions: Sequence, version: int) -> list[BarItem]
 
 
 def item_span(index: int, n_slots: int, width: float) -> tuple[float, float]:
+    """Lewa i prawa krawędź slotu `index` przy `n_slots` równych slotach na szerokości `width`."""
     slot = width / n_slots
     return index * slot, (index + 1) * slot
 

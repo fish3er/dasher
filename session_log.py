@@ -25,6 +25,7 @@ class SessionLog:
     def __init__(
         self, log_dir: str | None = None, clock: Callable[[], float] = time.perf_counter
     ) -> None:
+        """`log_dir` = katalog na plik JSONL sesji; None = tylko liczniki w pamięci, bez pliku."""
         self._clock = clock
         self._start = clock()
         self._file = None
@@ -44,6 +45,7 @@ class SessionLog:
             logger.info("Dziennik sesji: %s", self.path)
 
     def _write(self, event: str, **fields) -> None:
+        """Dopisz zdarzenie z czasem od startu sesji (no-op bez pliku)."""
         if self._file is None:
             return
         row = {"event": event, "t": round(self._clock() - self._start, 3), **fields}
@@ -51,6 +53,7 @@ class SessionLog:
         self._file.flush()
 
     def _end_run(self) -> None:
+        """Zamknij serię kolejnych wyborów z pasma (do średniej długości serii)."""
         if self._run:
             self._runs.append(self._run)
             self._run = 0
@@ -63,6 +66,9 @@ class SessionLog:
         steer_ms: float | None = None,
         tree_d1_width: int = 0,
     ) -> None:
+        """Zapisz wybór z danego źródła (litera / token / słowo) wraz z czasem dwell albo
+        sterowania i liczbą boksów pierwszej kolumny drzewa w chwili wyboru.
+        """
         self.selections[source] = self.selections.get(source, 0) + 1
         self.chars[source] = self.chars.get(source, 0) + len(text)
         by_width = self.selections_by_d1.setdefault(source, {})
@@ -79,20 +85,25 @@ class SessionLog:
         self._write("select", **fields)
 
     def delete(self, source: str, text: str) -> None:
+        """Zapisz cofnięcie segmentu; przerywa serię wyborów z pasma."""
         self.deletions += 1
         self._end_run()
         self._write("delete", source=source, text=text)
 
     def dwell_cancel(self, item: str, elapsed_ms: float) -> None:
+        """Zapisz przerwany dwell (kursor zjechał przed wyborem)."""
         self._write("dwell_cancel", item=item, elapsed_ms=round(elapsed_ms, 1))
 
     def suggestions_ready(self, latency_ms: float) -> None:
+        """Zapisz opóźnienie, z jakim pasek słów dostał sugestie."""
         self._write("suggestions_ready", latency_ms=round(latency_ms, 1))
 
     def tree_ready(self, latency_ms: float, stage: str = "", shape: tuple[int, ...] = ()) -> None:
+        """Zapisz opóźnienie etapu drzewa i jego kształt (boksy na poziom)."""
         self._write("tree_ready", latency_ms=round(latency_ms, 1), stage=stage, shape=list(shape))
 
     def summary(self, final_chars: int) -> dict:
+        """Podsumowanie sesji: czas, znaki/min, cofnięcia i wybory według źródła."""
         self._end_run()
         duration = self._clock() - self._start
         return {
@@ -109,6 +120,7 @@ class SessionLog:
         }
 
     def close(self, final_chars: int) -> None:
+        """Zapisz podsumowanie i zamknij plik; kolejne wywołania nic nie robią."""
         if self._closed:
             return
         self._closed = True

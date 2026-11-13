@@ -5,7 +5,8 @@ w Dasherze), pasek liter (dwell). Tu jest tylko rysowanie i spinanie — logika 
 w modułach testowanych bez tkintera: `dwell`, `token_tree`, `segments`, `bars`, `steering`,
 `ui_worker`, `session_log`.
 
-    python3 main.py --gguf models/plik.gguf
+    python3 main.py                          # model z katalogu models/ obok main.py
+    python3 main.py --gguf inny/plik.gguf
     python3 main.py --fake-model --log-dir session_logs
 """
 
@@ -20,6 +21,7 @@ import tkinter as tk
 import tkinter.font as tkfont
 import zlib
 from dataclasses import dataclass, fields
+from pathlib import Path
 
 from bars import LETTERS, BarItem, item_at, item_span, letter_items, word_items
 from dwell import EVENT_CANCEL, EVENT_FIRE, DwellTracker
@@ -39,6 +41,7 @@ from steering import SteerGate, Steering, View, ViewEase, in_deadzone, steering_
 from token_tree import (
     EMPTY_ROOT,
     box_x,
+    chain_origin,
     focus_path,
     insert_text,
     layout,
@@ -53,6 +56,10 @@ from ui_worker import Request, TreeReady, UIWorker, WordsReady, WorkerParams
 logger = logging.getLogger(__name__)
 
 DEFAULT_LOG_DIR = "session_logs"
+# Model bez --gguf: katalog `models/` obok tego pliku, więc `python3 main.py` działa z dowolnego
+# katalogu. Ten plik ma pierwszeństwo, gdy w katalogu leży kilka modeli.
+MODELS_DIR = Path(__file__).resolve().parent / "models"
+DEFAULT_GGUF = "google_gemma-4-E4B-it-Q4_K_M.gguf"
 TEXT_PANEL_H = 60
 # Boks staje się wybieralny dopiero po tym czasie na ekranie: inaczej coś, co pojawiło się
 # pod widokiem, zostałoby wybrane bez decyzji użytkownika.
@@ -140,6 +147,9 @@ class Config:
     # kolumny ~136/107 px i liście ~390 px przy oknie 1280; boks przy wyborze ~220 px.
     tree_expansion: float = 0.35
     show_shares: bool = False
+    # Cofnięcie do początku słowa (Gaines & Vertanen 2025, `word_backoff.py`) dla liter z paska:
+    # bez niego „bar” to token `▁bar` i model proponuje „barwnie” zamiast „bardzo”.
+    gv_backoff: bool = True
     # --- Cofanie: pełne lewo oddala o 60·ln(1/(1 − 0.6·zoom_gain·speed_scale)) w log(zakres)
     # na sekundę: przy domyślnych 2.20 /s, od postoju 1 → 2.5 w ~0.57 s podglądu
     # (zoom_gain 0.06: 0.84 s; dawne 0.08 bez speed_scale: ~0.46 s). ---
@@ -195,12 +205,14 @@ VIGNETTE_LEVELS = 10
 
 
 def lerp_color(c1: str, c2: str, t: float) -> str:
+    """Kolor pośredni między `c1` i `c2` (#RRGGBB) dla t w [0, 1]."""
     a = [int(c1[i:i + 2], 16) for i in (1, 3, 5)]
     b = [int(c2[i:i + 2], 16) for i in (1, 3, 5)]
     return "#" + "".join(f"{round(x + (y - x) * t):02X}" for x, y in zip(a, b))
 
 
 def shade(c: str, f: float) -> str:
+    """Kolor #RRGGBB z kanałami pomnożonymi przez `f` (rozjaśnienie > 1, przyciemnienie < 1)."""
     return "#" + "".join(f"{min(255, round(int(c[i:i + 2], 16) * f)):02X}" for i in (1, 3, 5))
 
 
@@ -224,6 +236,7 @@ def vignette_png(w: int, h: int, strength: float) -> bytes:
         rows.append(bytes(row))
 
     def chunk(tag: bytes, data: bytes) -> bytes:
+        """Fragment PNG: długość, typ, dane i CRC."""
         return (struct.pack(">I", len(data)) + tag + data
                 + struct.pack(">I", zlib.crc32(tag + data) & 0xFFFFFFFF))
 
@@ -234,6 +247,9 @@ def vignette_png(w: int, h: int, strength: float) -> bytes:
 
 
 def round_rect(canvas: tk.Canvas, x0, y0, x1, y1, r, **kw):
+    """Zaokrąglony prostokąt jako wygładzony wielokąt (tk nie ma go wprost); promień
+    przycięty do połowy krótszego boku.
+    """
     r = min(r, (x1 - x0) / 2, (y1 - y0) / 2)
     pts = (x0 + r, y0, x1 - r, y0, x1, y0, x1, y0 + r, x1, y1 - r, x1, y1,
            x1 - r, y1, x0 + r, y1, x0, y1, x0, y1 - r, x0, y0 + r, x0, y0)
@@ -241,6 +257,9 @@ def round_rect(canvas: tk.Canvas, x0, y0, x1, y1, r, **kw):
 
 
 def parse_widths(value: str) -> tuple[int, ...]:
+    """Szerokości drzewa z tekstu „4,2,2”: trzy liczby >= 2, z limitem równoległych
+    sekwencji modelu. ValueError przy złym formacie.
+    """
     widths = tuple(int(part) for part in value.split(","))
     if len(widths) != 3 or any(w < 2 for w in widths):
         raise ValueError("oczekiwane trzy liczby >= 2, np. 4,2,2")
@@ -293,6 +312,7 @@ class SettingsWindow:
     )
 
     def __init__(self, app: "AIDasher") -> None:
+        """Okno ustawień (F2): suwaki z `COLUMNS`, pole szerokości drzewa i debug udziałów."""
         self.app = app
         self.win = tk.Toplevel(app.root)
         self.win.title("Ustawienia")
@@ -342,6 +362,7 @@ class SettingsWindow:
         app.paused = True
 
     def apply_widths(self) -> None:
+        """Zastosuj szerokości z pola tekstowego; błędne wartości wracają do bieżących."""
         try:
             widths = parse_widths(self.widths_var.get())
         except ValueError as exc:
@@ -352,6 +373,7 @@ class SettingsWindow:
             self.app.set_option("tree_widths", widths)
 
     def close(self) -> None:
+        """Zapisz szerokości, odpauzuj pasmo i zamknij okno."""
         self.apply_widths()
         self.app.paused = False
         self.app.settings_window = None
@@ -362,6 +384,7 @@ class TextPanel:
     """Górne pasmo: tekst w segmentach + przycisk ustawień."""
 
     def __init__(self, app: "AIDasher") -> None:
+        """Pasek tekstu na górze: wpisany tekst (tylko do odczytu) i przycisk ustawień."""
         self.app = app
         self.frame = tk.Frame(app.root, height=TEXT_PANEL_H)
         self.frame.pack(side="top", fill="x")
@@ -384,6 +407,7 @@ class TextPanel:
         self._last_source_alt: tuple[str, int] | None = None
 
     def apply_theme(self, t: dict) -> None:
+        """Kolory panelu i tła segmentów (naprzemienne odcienie per źródło) z motywu `t`."""
         self.frame.configure(bg=t["entry_bg"])
         self.settings_button.configure(bg=t["entry_bg"], fg=t["entry_fg"],
                                        activebackground=t["divider"], highlightthickness=0)
@@ -396,6 +420,9 @@ class TextPanel:
         self._last_pending = None
 
     def render(self, segments: list[Segment], ghosts: list[tuple[str, float]]) -> None:
+        """Narysuj tekst od nowa: segmenty z tłem według źródła, kursor, za nim usunięte
+        teksty (duchy). Ostatni segment dostaje tag podglądu usuwania.
+        """
         t = self.text
         t.configure(state="normal")
         t.delete("1.0", "end")
@@ -416,6 +443,9 @@ class TextPanel:
         self._last_pending = None
 
     def set_pending(self, intensity: float, struck: bool) -> None:
+        """Podgląd usuwania ostatniego segmentu: tło przechodzi w kolor usuwania, od progu
+        przekreślenie. Bez zmian stanu nic nie przerysowuje.
+        """
         state = (round(intensity, 2), struck, self._last_source_alt)
         if state == self._last_pending:
             return
@@ -432,6 +462,7 @@ class TextPanel:
                                 overstrike=struck)
 
     def set_ghosts(self, ghosts: list[tuple[str, float]]) -> None:
+        """Przekreślone duchy za kursorem, gasnące do tła według krycia."""
         t = self.app.theme
         for j, (_text, alpha) in enumerate(ghosts):
             self.text.tag_configure(f"ghost_{j}", overstrike=True,
@@ -439,6 +470,7 @@ class TextPanel:
 
     @property
     def n_ghosts(self) -> int:
+        """Liczba duchów narysowanych przez ostatnie `render`."""
         return self._n_ghosts
 
 
@@ -447,6 +479,9 @@ class BarView:
 
     def __init__(self, app: "AIDasher", height: int, n_slots: int, source: str, font_px: int,
                  dwell_ms: float) -> None:
+        """Pasek dwell (słowa albo litery) jako osobne płótno z `n_slots` stałymi slotami;
+        `source` trafia do historii i dziennika przy wyborze.
+        """
         self.app = app
         self.source = source
         self.n_slots = n_slots
@@ -466,15 +501,20 @@ class BarView:
         self.canvas.bind("<Button-3>", lambda e: app.undo_last(force=True))
 
     def _on_configure(self, event) -> None:
+        """Nowy rozmiar płótna: zapamiętaj go i przerysuj sloty."""
         self.width, self.height = event.width, event.height
         self.dirty = True
 
     def set_items(self, items: list[BarItem]) -> None:
+        """Podmień zawartość slotów (przerysowanie tylko przy zmianie)."""
         if items != self.items:
             self.items = items
             self.dirty = True
 
     def step(self, now: float) -> None:
+        """Jedna klatka: element pod kursorem idzie do automatu dwell; wybór wstawia element,
+        przerwanie trafia do dziennika.
+        """
         index = None
         if self.pointer_x is not None and not self.app.paused and self.items:
             index = item_at(self.pointer_x, self.n_slots, self.width, self.tracker.item,
@@ -494,6 +534,7 @@ class BarView:
             self.app.select_from_bar(item, self.source, event.elapsed_ms, now)
 
     def _fill(self, index: int, item: BarItem | None) -> str:
+        """Kolor slotu: pusty, litera (gradient alfabetu) albo sugestia AI."""
         t = self.app.theme
         if item is None:
             return t["slot_empty"]
@@ -502,11 +543,15 @@ class BarView:
         return t["ai"]
 
     def _rest_pad(self) -> float:
+        """Pionowy margines slotu w spoczynku (miejsce na powiększenie pod kursorem)."""
         # Spoczynkowa wysokość zostawia miejsce na powiększenie — powiększony element ma
         # zmieścić się w swoim płótnie, bez zasłaniania pasma środkowego.
         return (self.height - self.height / self.app.hover_scale) / 2
 
     def _label(self, item: BarItem, cx: float, cy: float, max_w: float, px: int, tag: str) -> None:
+        """Etykieta wyśrodkowana w slocie: przygaszony wpisany początek słowa + dokończenie;
+        za długa jest skracana z „…”.
+        """
         t, app = self.app.theme, self.app
         font = app.font(px)
         whole = item.dim_prefix + item.label
@@ -523,6 +568,7 @@ class BarView:
                                 fill=t["text"], tags=tag)
 
     def redraw_static(self) -> None:
+        """Narysuj od nowa tło i wszystkie sloty w spoczynku."""
         c = self.canvas
         c.delete("all")
         c.configure(bg=self.app.theme["bar_bg"])
@@ -537,6 +583,9 @@ class BarView:
         self.dirty = False
 
     def draw(self, now: float) -> None:
+        """Warstwa dynamiczna: błysk po wyborze i powiększony element pod kursorem
+        (skala rośnie z czasem najechania).
+        """
         if self.dirty:
             self.redraw_static()
         c, t = self.canvas, self.app.theme
@@ -584,6 +633,9 @@ class BarView:
 
 class AIDasher:
     def __init__(self, root, backend, cfg: Config):
+        """Zbuduj okno (panel tekstu, pasek słów, pasmo, pasek liter), wątek modelu i stan;
+        uruchamia pętlę klatek.
+        """
         self.root = root
         self.cfg = cfg
         self.root.title("AI Dasher")
@@ -625,6 +677,7 @@ class AIDasher:
             n_suggestions=cfg.n_suggestions,
             beam_width=cfg.beam_width, top_k=cfg.top_k, top_p=cfg.top_p,
             max_prefix_chars=cfg.max_prefix_chars,
+            backoff=cfg.gv_backoff,
         ))
         self.log = SessionLog(cfg.log_dir)
 
@@ -633,7 +686,11 @@ class AIDasher:
         self.version = 0
         self.history = History(cfg.undo_min_interval)
         self.typed_text = ""
+        # Kontekst modelu, do którego dopisują się tokeny korzenia drzewa. Zwykle tokeny całego
+        # tekstu; po cofnięciu do początku słowa (`root_healed`) — tokeny SPRZED bieżącego słowa,
+        # a wpisana część siedzi w tokenach boksów. None = tekst z paska, tokenizacja od nowa.
         self.prefix_ids: list[int] | None = None
+        self.root_healed = False
         self.tree_root = EMPTY_ROOT
         self.tree_done = False
         self.boxes = []
@@ -704,6 +761,7 @@ class AIDasher:
     # -- rozmiar, opcje, motyw ------------------------------------------------------
 
     def set_canvas_size(self, w, h):
+        """Nowy rozmiar pasma: przelicz pozycję celownika i przerysuj tło."""
         self.canvas_w, self.canvas_h = max(w, 100), max(h, 100)
         # Lewa część płótna (na lewo od krzyżyka) = strefa cofania.
         self.cross_x = self.canvas_w * self.cross_frac
@@ -712,19 +770,23 @@ class AIDasher:
         self._static_dirty = True
 
     def save_mouse(self, event):
+        """Zapamiętaj pozycję kursora nad pasmem."""
         self.mouse_x, self.mouse_y = event.x, event.y
         self.pointer_in_band = True
 
     def leave_band(self, event):
+        """Kursor opuścił pasmo: przestaje sterować."""
         self.pointer_in_band = False
 
     def toggle_settings(self):
+        """Otwórz albo zamknij okno ustawień (F2)."""
         if self.settings_window is None:
             self.settings_window = SettingsWindow(self)
         else:
             self.settings_window.close()
 
     def set_option(self, name: str, value) -> None:
+        """Zmień ustawienie `name` na żywo (z okna F2) i odśwież to, co od niego zależy."""
         if name in ("grid_spacing", "fps", "word_bar_h", "letter_bar_h", "tree_max_leaves"):
             value = int(value)
         setattr(self, name, value)
@@ -759,6 +821,7 @@ class AIDasher:
             self.restart_tree()
 
     def apply_theme(self):
+        """Zastosuj bieżący motyw do pasma, panelu i pasków."""
         t = self.theme
         self.canvas.configure(bg=t["bg_bottom"])
         self.panel.apply_theme(t)
@@ -767,6 +830,9 @@ class AIDasher:
         self.text_dirty = True
 
     def letter_color(self, i: int, char: str) -> str:
+        """Kolor slotu litery `char` na pozycji `i`: paleta cykliczna (classic) albo gradient
+        po alfabecie z lekkim naprzemiennym rozjaśnieniem (calm).
+        """
         t = self.theme
         if t["special"] is None:  # classic: cykliczna paleta
             return t["letters"][i % len(t["letters"])]
@@ -778,6 +844,7 @@ class AIDasher:
     # -- czcionki ------------------------------------------------------------------------
 
     def font(self, px: int) -> tkfont.Font:
+        """Pogrubiona czcionka o wysokości `px` pikseli (cache)."""
         font = self._fonts.get(px)
         if font is None:
             font = tkfont.Font(root=self.root, family="Arial", size=-px, weight="bold")
@@ -785,6 +852,7 @@ class AIDasher:
         return font
 
     def measure(self, text: str, px: int) -> int:
+        """Szerokość tekstu w px dla czcionki `px` (cache, czyszczony powyżej 5000 wpisów)."""
         key = (text, px)
         width = self._measures.get(key)
         if width is None:
@@ -795,6 +863,7 @@ class AIDasher:
         return width
 
     def fit_label(self, text: str, px: int, max_w: float) -> str:
+        """Tekst przycięty z „…” do szerokości `max_w`; pusty, gdy nic się nie zmieści."""
         width = self.measure(text, px)
         if width <= max_w:
             return text
@@ -804,14 +873,19 @@ class AIDasher:
     # -- zmiany stanu ---------------------------------------------------------------------
 
     def request_missing(self) -> None:
+        """Zleć workerowi to, czego brakuje dla bieżącej wersji tekstu (drzewo, sugestie),
+        albo anuluj liczenie, gdy wszystko jest gotowe.
+        """
         need_tree, need_words = not self.tree_done, not self.words_ready
         if not need_tree and not need_words:
             self.worker.cancel(self.version)
             return
+        # Po cofnięciu `prefix_ids` nie opisuje całego tekstu: worker cofa się jeszcze raz.
+        known = self.prefix_ids is not None and not self.root_healed
         self.worker.request(Request(
             version=self.version,
             text=self.typed_text,
-            token_ids=tuple(self.prefix_ids) if self.prefix_ids is not None else None,
+            token_ids=tuple(self.prefix_ids) if known else None,
             root=self.tree_root,
             need_tree=need_tree,
             need_words=need_words,
@@ -822,6 +896,9 @@ class AIDasher:
         ))
 
     def text_changed(self) -> None:
+        """Tekst się zmienił: nowa wersja (stare wyniki przepadają), przerysowanie panelu
+        i żądanie nowych wyników.
+        """
         self.version += 1
         self.typed_text = self.history.text
         self.text_dirty = True
@@ -830,14 +907,20 @@ class AIDasher:
         self.request_missing()
 
     def refresh_word_items(self) -> None:
+        """Sloty paska słów z bieżących sugestii (puste, dopóki ich nie ma)."""
         items = word_items(self.typed_text, self.suggestions, self.version) if self.words_ready else []
         self.word_bar.set_items(items)
 
     def set_tree(self, root, now: float) -> None:
+        """Ustaw drzewo i jego boksy. Nowe boksy dostają czas narodzin `now`; boks sklejony
+        z łańcucha przejmuje czas boksu, z którego powstał.
+        """
         self.tree_root = root
         self.boxes = layout(root)
         for box in self.boxes:
-            self.born.setdefault(box.path, now)
+            if box.path not in self.born:
+                origin = chain_origin(box.path, self.born)
+                self.born[box.path] = self.born[origin] if origin is not None else now
 
     def restart_tree(self) -> None:
         """Nowe szerokości poziomów: drzewo liczone od zera dla tego samego tekstu."""
@@ -851,6 +934,9 @@ class AIDasher:
         self.request_missing()
 
     def snapshot(self, segment: Segment, low: float | None = None, high: float | None = None) -> HistoryEntry:
+        """Wpis historii: segment + stan sprzed jego wstawienia (tokeny, drzewo, sugestie);
+        `low`/`high` = granice wybranego boksu, None dla wyboru z paska.
+        """
         return HistoryEntry(
             segment=segment,
             token_ids=tuple(self.prefix_ids) if self.prefix_ids is not None else None,
@@ -860,6 +946,7 @@ class AIDasher:
             el_low=low,
             el_high=high,
             tree_done=self.tree_done,
+            healed=self.root_healed,
         )
 
     def select_box(self, box, now: float) -> None:
@@ -870,8 +957,11 @@ class AIDasher:
         self.history.push(self.snapshot(Segment(inserted, SOURCE_TOKEN), box.low, box.high))
         self.ghosts.clear()
         self.view.low, self.view.high = reroot_view(self.view.low, self.view.high, box)
-        self.born = rebase_born(self.born, box.node.token_id)
-        self.prefix_ids = (self.prefix_ids or []) + [box.node.token_id]
+        self.born = rebase_born(self.born, box.node.key)
+        # Tokeny boksu: jeden, sklejony łańcuch albo (po cofnięciu) wpisana część słowa
+        # + wystający token. Po dopisaniu `prefix_ids` znów opisuje cały tekst.
+        self.prefix_ids = (self.prefix_ids or []) + list(box.node.tokens)
+        self.root_healed = False
         self.set_tree(box.node, now)
         self.root_since = now
         self.tree_done = False
@@ -882,6 +972,9 @@ class AIDasher:
         self.text_changed()
 
     def select_from_bar(self, item: BarItem, source: str, dwell_ms: float, now: float) -> None:
+        """Wstaw element paska (litera albo słowo): drzewo liczone od nowa, tekst tokenizowany
+        od nowa, widok wraca na całe pasmo.
+        """
         self.log.select(source, item.insert, dwell_ms=dwell_ms,
                         tree_d1_width=len(self.tree_root.children))
         self.history.push(self.snapshot(Segment(item.insert, source)))
@@ -890,6 +983,7 @@ class AIDasher:
         self.set_tree(EMPTY_ROOT, now)
         self.tree_done = False
         self.prefix_ids = None  # tekst z paska: tokenizacja od nowa
+        self.root_healed = False
         self.suggestions, self.words_ready = (), False
         self.view_ease = ViewEase(self.view, now)
         self.steering.stop()
@@ -907,6 +1001,7 @@ class AIDasher:
         self.log.delete(entry.segment.source, entry.segment.text)
         self.ghosts.add(entry.segment.text, now)
         self.prefix_ids = list(entry.token_ids) if entry.token_ids is not None else None
+        self.root_healed = entry.healed
         self.suggestions, self.words_ready = entry.suggestions, entry.words_ready
         self.born = {}
         self.set_tree(entry.root, now)
@@ -922,8 +1017,10 @@ class AIDasher:
         self.text_changed()
 
     def apply_tree(self, msg: TreeReady, now: float) -> None:
+        """Przyjmij drzewo od workera razem z kontekstem jego korzenia (`token_ids`, `healed`)."""
         was_empty = not self.tree_root.children
         self.prefix_ids = list(msg.token_ids)
+        self.root_healed = msg.healed
         self.set_tree(msg.root, now)
         self.tree_done = msg.final
         self.log.tree_ready(msg.latency_ms, msg.stage, tree_shape(msg.root))
@@ -933,6 +1030,7 @@ class AIDasher:
             self.view_ease = ViewEase(self.view, now)
 
     def apply_words(self, msg: WordsReady) -> None:
+        """Przyjmij sugestie słów od workera i pokaż je w pasku."""
         self.suggestions, self.words_ready = msg.suggestions, True
         self.log.suggestions_ready(msg.latency_ms)
         self.refresh_word_items()
@@ -940,6 +1038,9 @@ class AIDasher:
     # -- fizyka ------------------------------------------------------------------------
 
     def update_physics(self, now: float) -> None:
+        """Jedna klatka sterowania: bramka wejścia, martwa strefa, powrót widoku albo krok
+        fizyki; oddalenie za próg cofa ostatni segment, wejście w boks go wybiera.
+        """
         dt = now - self.last_t
         self.last_t = now
         if self.paused:
@@ -978,16 +1079,21 @@ class AIDasher:
             self.check_selection(now)
 
     def set_in_deadzone(self, inside: bool) -> None:
+        """Zmień stan „kursor w martwej strefie” i kolor jej obrysu."""
         if inside == self.pointer_in_deadzone:
             return
         self.pointer_in_deadzone = inside
         self.canvas.itemconfigure("deadzone", outline=self.deadzone_color())
 
     def deadzone_color(self) -> str:
+        """Kolor obrysu martwej strefy: akcent, gdy kursor jest w środku."""
         t = self.theme
         return t["cross"] if self.pointer_in_deadzone else t["grid"]
 
     def check_selection(self, now: float) -> None:
+        """Wybierz boks pierwszej kolumny, gdy widok w całości mieści się w nim (zoom do wnętrza),
+        o ile boks jest na ekranie co najmniej `BOX_SELECTABLE_S`.
+        """
         # Widok w pełnym paśmie nigdy nie jest „wejściem w boks”, nawet gdy po filtrze
         # zostało jedyne dziecko o rozpiętości 1 — inaczej wybierałoby się samo.
         if self.view.range >= 1.0:
@@ -1001,11 +1107,15 @@ class AIDasher:
                 return
 
     def update_focus(self) -> None:
+        """Boksy pod celownikiem (środek widoku): ścieżka fokusu do podświetlenia."""
         path = focus_path(self.boxes, self.view.center)
         self.focus_paths = {box.path for box in path}
         self.focus_d1 = path[0].path if path else None
 
     def update_text_panel(self, now: float, dt: float) -> None:
+        """Panel tekstu w klatce: podgląd usuwania według postępu oddalania, duchy, przerysowanie
+        po zmianie tekstu.
+        """
         # W trakcie powrotu widoku zakres dalej jest duży, ale dotyczy już cofniętego
         # segmentu; podgląd nie może zapalić się na następnym.
         progress = 0.0
@@ -1079,6 +1189,9 @@ class AIDasher:
             self.draw_box_label(root, label_x0, x1, (y0 + y1) / 2, px, fill, 1.0)
 
     def draw_tree(self, now: float) -> None:
+        """Narysuj korzeń i boksy drzewa: kolory poziomów, fokus z poświatą, wygaszanie
+        nowych boksów, etykiety i (debug) udziały.
+        """
         c, t = self.canvas, self.theme
         view_range = self.view.range
         bg = t["bg_bottom"]
@@ -1111,6 +1224,9 @@ class AIDasher:
                 self.draw_share(box, x1, (y0 + y1) / 2)
 
     def draw_box_label(self, node, x0, x1, cy, px, fill, fade) -> None:
+        """Etykieta boksu wyśrodkowana: „-reszta” dla dokończenia słowa, a dla nowego słowa
+        przygaszony znacznik ␣ przed tekstem.
+        """
         c, t = self.canvas, self.theme
         starts_word, label = token_label(node.text)
         marker_w = self.measure("␣", px) if starts_word else 0
@@ -1127,6 +1243,7 @@ class AIDasher:
                           fill=lerp_color(fill, t["text"], 0.45 * fade), tags="dyn")
 
     def draw_share(self, box, x1, cy) -> None:
+        """Debug: wysokość boksu w układzie korzenia przy jego prawej krawędzi."""
         share = f"{box.span:.4f}".rstrip("0").rstrip(".")
         color = self.theme["word_dim"]
         if box.depth == 3:
@@ -1137,6 +1254,7 @@ class AIDasher:
                                     font=self.font(10), tags="dyn")
 
     def draw_scene(self, now: float) -> None:
+        """Klatka pasma: tło (tylko po zmianie), drzewo, winieta, ramka na wierzchu."""
         c = self.canvas
         if self._static_dirty:
             self.draw_static()
@@ -1203,6 +1321,9 @@ class AIDasher:
     # -- pętla ------------------------------------------------------------------------------
 
     def run(self):
+        """Pętla klatek: wyniki workera, paski, fizyka, fokus, panel i rysowanie; następna
+        klatka po czasie wynikającym z `fps` minus czas tej.
+        """
         start = time.perf_counter()
         dt = start - self.frame_t
         self.frame_t = start
@@ -1229,6 +1350,7 @@ class AIDasher:
         self.root.after(max(2, round(1000 / self.fps - spent_ms)), self.run)
 
     def shutdown(self) -> None:
+        """Zamknij dziennik i wątek modelu, zaloguj statystyki opóźnień (raz)."""
         if self._shut_down:
             return
         self._shut_down = True
@@ -1239,15 +1361,31 @@ class AIDasher:
             logger.info("Latencja etapów [ms]: %s", summary)
 
     def on_close(self) -> None:
+        """Zamknięcie okna: sprzątanie i zniszczenie okna tk."""
         self.shutdown()
         self.root.destroy()
 
 
+def default_gguf() -> tuple[str | None, list[Path]]:
+    """Model, gdy nie podano --gguf: zmienna DASHER_GGUF, potem `models/DEFAULT_GGUF`, potem
+    jedyny plik .gguf w `models/`. Zwraca (ścieżka albo None, znalezione pliki .gguf)."""
+    env = os.environ.get("DASHER_GGUF")
+    if env:
+        return env, []
+    found = sorted(MODELS_DIR.glob("*.gguf")) if MODELS_DIR.is_dir() else []
+    preferred = MODELS_DIR / DEFAULT_GGUF
+    if preferred.is_file():
+        return str(preferred), found
+    return (str(found[0]) if len(found) == 1 else None), found
+
+
 def parse_args() -> Config:
+    """Konfiguracja z linii poleceń (wartości domyślne z `Config`) z kontrolą zakresów."""
     defaults = Config()
     p = argparse.ArgumentParser(description="AI Dasher — UI z paskami dwell i drzewem tokenów.")
-    p.add_argument("--gguf", default=os.environ.get("DASHER_GGUF"),
-                   help="ścieżka do modelu .gguf (domyślnie zmienna DASHER_GGUF)")
+    p.add_argument("--gguf", default=None,
+                   help=f"ścieżka do modelu .gguf (domyślnie zmienna DASHER_GGUF, a bez niej "
+                        f"{MODELS_DIR.name}/{DEFAULT_GGUF} albo jedyny .gguf w {MODELS_DIR})")
     p.add_argument("--n-gpu-layers", type=int, default=defaults.n_gpu_layers)
     p.add_argument("--n-suggestions", type=int, default=defaults.n_suggestions)
     p.add_argument("--beam-width", type=int, default=defaults.beam_width)
@@ -1307,6 +1445,8 @@ def parse_args() -> Config:
                         "1 = czysty Dasher, [0.2, 1]")
     p.add_argument("--show-shares", action="store_true",
                    help="debug: pokaż udział każdego boksu w paśmie")
+    p.add_argument("--no-gv-backoff", dest="gv_backoff", action="store_false",
+                   help="bez cofania do początku słowa (G&V) po literach z paska — do porównań")
     p.add_argument("--undo-zoom", type=float, default=defaults.undo_zoom,
                    help="zakres widoku, przy którym oddalanie cofa ostatni segment, > 1")
     p.add_argument("--undo-min-interval", type=float, default=defaults.undo_min_interval,
@@ -1323,8 +1463,15 @@ def parse_args() -> Config:
                    help=f"katalog dziennika sesji JSONL (samo --log-dir = {DEFAULT_LOG_DIR})")
     p.add_argument("--verbose", action="store_true", help="logi debug, w tym latencja etapów")
     args = p.parse_args()
-    if not args.gguf and not args.fake_model:
-        p.error("podaj --gguf, ustaw DASHER_GGUF albo użyj --fake-model")
+    if not args.fake_model:
+        if not args.gguf:
+            args.gguf, found = default_gguf()
+            if args.gguf is None:
+                what = (f"kilka modeli w {MODELS_DIR}: {', '.join(f.name for f in found)}" if found
+                        else f"brak pliku .gguf w {MODELS_DIR}")
+                p.error(f"{what} — podaj --gguf, ustaw DASHER_GGUF albo użyj --fake-model")
+        if not Path(args.gguf).is_file():
+            p.error(f"nie ma pliku modelu: {args.gguf}")
     if not 320 <= args.width < 1920:
         p.error("--width musi być w zakresie [320, 1920)")
     if not 0.0 <= args.vignette <= 1.0:
@@ -1373,6 +1520,7 @@ def parse_args() -> Config:
 
 
 def make_backend(cfg: Config):
+    """Backend modelu: atrapa (`--fake-model`) albo `CachedBeamSearch` z GGUF."""
     if cfg.fake_model:
         from fake_backend import FakeBackend
 

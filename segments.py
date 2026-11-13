@@ -17,7 +17,6 @@ from token_tree import TreeNode
 SOURCE_LETTER = "letter"
 SOURCE_TOKEN = "token"
 SOURCE_WORD = "word"
-SOURCES = (SOURCE_LETTER, SOURCE_TOKEN, SOURCE_WORD)
 
 GHOST_FADE_S = 0.8
 PENDING_FADE_S = 0.2
@@ -43,10 +42,13 @@ class HistoryEntry:
     el_high: float | None = None
     # Czy drzewo było już policzone do końca; wtedy cofnięcie nic nie liczy od nowa.
     tree_done: bool = False
+    # `token_ids` to kontekst sprzed bieżącego słowa (cofnięcie G&V), nie tokeny całego tekstu.
+    healed: bool = False
 
 
 class History:
     def __init__(self, min_interval: float = 0.5, clock: Callable[[], float] = time.perf_counter) -> None:
+        """`min_interval` [s] to najkrótszy odstęp między kolejnymi cofnięciami (bez `force`)."""
         self.min_interval = min_interval
         self._clock = clock
         self.entries: list[HistoryEntry] = []
@@ -54,19 +56,24 @@ class History:
 
     @property
     def segments(self) -> list[Segment]:
+        """Wstawione segmenty w kolejności pisania."""
         return [e.segment for e in self.entries]
 
     @property
     def text(self) -> str:
+        """Cały wpisany tekst: sklejone segmenty."""
         return "".join(e.segment.text for e in self.entries)
 
     def __bool__(self) -> bool:
+        """Czy jest co cofać."""
         return bool(self.entries)
 
     def push(self, entry: HistoryEntry) -> None:
+        """Dopisz wpis (segment + migawka stanu sprzed wstawienia)."""
         self.entries.append(entry)
 
     def can_undo(self) -> bool:
+        """Czy cofnięcie jest możliwe: jest wpis i minął `min_interval` od poprzedniego."""
         if not self.entries:
             return False
         return self._last_undo is None or self._clock() - self._last_undo >= self.min_interval
@@ -90,17 +97,23 @@ class PendingStyle:
     """Intensywność stylu „do usunięcia”: rośnie z postępem, a po wycofaniu gaśnie płynnie."""
 
     def __init__(self) -> None:
+        """Start bez podglądu usuwania."""
         self.intensity = 0.0
 
     def update(self, progress: float, dt: float) -> float:
+        """Intensywność dla postępu `progress` (0..1): rośnie od razu, maleje najwyżej
+        o `dt / PENDING_FADE_S` na klatkę.
+        """
         self.intensity = max(progress, self.intensity - dt / PENDING_FADE_S, 0.0)
         return self.intensity
 
     @property
     def struck(self) -> bool:
+        """Czy segment rysować przekreślony (intensywność ponad `STRIKE_FROM`)."""
         return self.intensity > STRIKE_FROM
 
     def reset(self) -> None:
+        """Zgaś podgląd od razu (np. po zmianie tekstu)."""
         self.intensity = 0.0
 
 
@@ -111,9 +124,11 @@ class GhostTrail:
     ghosts: list[tuple[str, float]] = field(default_factory=list)
 
     def add(self, text: str, now: float) -> None:
+        """Dodaj usunięty tekst jako najnowszego ducha (czas `now` liczy wygaszanie)."""
         self.ghosts.insert(0, (text, now))
 
     def clear(self) -> None:
+        """Usuń wszystkie duchy (np. po nowym wstawieniu)."""
         self.ghosts.clear()
 
     def active(self, now: float) -> list[tuple[str, float]]:

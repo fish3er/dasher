@@ -7,10 +7,18 @@ prawdopodobny). Mierzone wcześniej mapowanie p->wysokość dawało silnie skoś
 
 Liczba boksów jest ograniczona, bo 4 + 8 + 16 to za dużo do ogarnięcia w trakcie pisania:
 szerokości poziomów to top-k, `top_p` ucina gałąź, gdy model jest już pewny, a trzecia kolumna
-ma twardy limit `max_leaves`, rozdzielany gałęziom od najbardziej prawdopodobnej. Węzeł ma
-0 dzieci, >= 2 dzieci albo JEDNO dziecko, którego model jest pewien (>= top_p). Jedyne dziecko
-po ponownym zakorzenieniu wypełnia pasmo i wybiera się samo w locie — to nagroda za pewny token
-(„samoch” + „ód”), ale dla tokenu o niskim p byłby to wybór bez decyzji użytkownika.
+ma twardy limit `max_leaves`, rozdzielany gałęziom od najbardziej prawdopodobnej.
+
+Jedno dziecko, którego model jest pewien (>= top_p), jest DOKLEJANE do rodzica: boks „ę” z jedynym
+dzieckiem „tnie” staje się jednym boksem „ętnie”, a „ przec” + „zy” + „tam” boksem „ przeczytam”.
+Rodzic z jednym dzieckiem miałby kolumnę o szerokości 0 (dziecko ma tę samą wysokość, a lewa
+krawędź zależy tylko od wysokości), więc na ekranie stałoby samo „-tnie” bez „ę”. Dlatego węzeł
+pod korzeniem ma 0 albo >= 2 dzieci. Wyjątek: jedyne dziecko KORZENIA (wpisany tekst się nie
+zmienia, więc nie ma do czego doklejać) wypełnia pasmo i wybiera się samo w locie.
+
+Węzeł niesie więc ciąg tokenów (`tokens`), nie jeden: sklejony łańcuch albo dokończenie słowa
+po cofnięciu do jego początku (G&V, patrz `word_backoff.py`) — tokeny wpisanej części słowa plus
+token, który za nią wystaje. Ścieżki w drzewie składają się z kluczy węzłów (`key` = `tokens`).
 
 `TreeNode` jest niemutowalny: dołożenie poziomu kopiuje ścieżkę, więc migawki drzewa
 w historii cofania nie zmieniają się pod spodem.
@@ -42,6 +50,10 @@ MAX_DEPTH = 3
 DEFAULT_WIDTHS = (4, 2, 2)
 DEFAULT_TOP_P = 0.9
 DEFAULT_MAX_LEAVES = 8
+# Ile razy na poziom doklejamy pewne jedyne dziecko do rodzica. Każde doklejenie to kolejne
+# batchowane dekodowanie poziomu, więc limit trzyma latencję. Łańcuch dłuższy niż limit kończy
+# się liściem bez dzieci — krótszy boks jest lepszy niż boks bez etykiety.
+MAX_CHAIN_MERGES = 3
 
 
 _MARKDOWN_CHARS = frozenset("*#`_")
@@ -49,13 +61,23 @@ _MARKDOWN_CHARS = frozenset("*#`_")
 
 @dataclass(frozen=True)
 class TreeNode:
-    token_id: int
+    """`tokens` trafiają do kontekstu modelu po wejściu w boks, `text` do wpisanego tekstu."""
+
+    tokens: tuple[int, ...]
     text: str
     logprob: float
     children: tuple["TreeNode", ...] = ()
 
+    @property
+    def key(self) -> tuple[int, ...]:
+        """Identyfikator wśród rodzeństwa (element ścieżki)."""
+        return self.tokens
 
-EMPTY_ROOT = TreeNode(-1, "", 0.0)
+
+EMPTY_ROOT = TreeNode((), "", 0.0)
+
+Key = tuple[int, ...]
+Path = tuple[Key, ...]
 
 
 @dataclass(frozen=True)
@@ -63,13 +85,14 @@ class Box:
     """Boks w układzie korzenia [0, 1]."""
 
     node: TreeNode
-    path: tuple[int, ...]
+    path: Path
     depth: int
     low: float
     high: float
 
     @property
     def span(self) -> float:
+        """Wysokość boksu w układzie korzenia."""
         return self.high - self.low
 
 
@@ -77,37 +100,73 @@ class Box:
 # Struktura
 # ---------------------------------------------------------------------------
 
-def attach(root: TreeNode, path: Sequence[int], children: tuple[TreeNode, ...]) -> TreeNode:
+def attach(root: TreeNode, path: Sequence[Key], children: tuple[TreeNode, ...]) -> TreeNode:
     """Zwróć drzewo z `children` pod węzłem `path` (kopia ścieżki, oryginał nietknięty)."""
     if not path:
         return replace(root, children=children)
     head, rest = path[0], path[1:]
     return replace(root, children=tuple(
-        attach(c, rest, children) if c.token_id == head else c for c in root.children
+        attach(c, rest, children) if c.key == head else c for c in root.children
     ))
 
 
-def leaves_at(root: TreeNode, depth: int, _path: tuple[int, ...] = ()) -> list[tuple[int, ...]]:
+def _replace_node(root: TreeNode, path: Sequence[Key], new: TreeNode) -> TreeNode:
+    """Zwróć drzewo z węzłem `path` (niepustą ścieżką) podmienionym na `new`."""
+    head, rest = path[0], path[1:]
+    return replace(root, children=tuple(
+        (_replace_node(c, rest, new) if rest else new) if c.key == head else c
+        for c in root.children
+    ))
+
+
+def node_at(root: TreeNode, path: Sequence[Key]) -> TreeNode:
+    """Węzeł na końcu ścieżki `path` (pusta ścieżka = korzeń)."""
+    node = root
+    for key in path:
+        node = next(c for c in node.children if c.key == key)
+    return node
+
+
+def leaves_at(root: TreeNode, depth: int, _path: Path = ()) -> list[Path]:
     """Ścieżki węzłów bez dzieci, leżących dokładnie na głębokości `depth`."""
     if depth == 0:
         return [] if root.children else [_path]
-    out: list[tuple[int, ...]] = []
+    out: list[Path] = []
     for child in root.children:
-        out += leaves_at(child, depth - 1, _path + (child.token_id,))
+        out += leaves_at(child, depth - 1, _path + (child.key,))
     return out
 
 
-def path_logprob(root: TreeNode, path: Sequence[int]) -> float:
+def path_logprob(root: TreeNode, path: Sequence[Key]) -> float:
     """Łączny logprob ścieżki od korzenia."""
     total = 0.0
     node = root
-    for token_id in path:
-        node = next(c for c in node.children if c.token_id == token_id)
+    for key in path:
+        node = next(c for c in node.children if c.key == key)
         total += node.logprob
     return total
 
 
+def path_tokens(root: TreeNode, path: Sequence[Key]) -> tuple[int, ...]:
+    """Tokeny dopisywane do kontekstu korzenia po przejściu ścieżką `path`."""
+    out: list[int] = []
+    node = root
+    for key in path:
+        node = next(c for c in node.children if c.key == key)
+        out.extend(node.tokens)
+    return tuple(out)
+
+
+def merge_chain(parent: TreeNode, child: TreeNode) -> TreeNode:
+    """Rodzic i jego jedyne dziecko jako jeden boks („ę” + „tnie” -> „ętnie”)."""
+    return TreeNode(
+        parent.tokens + child.tokens, parent.text + child.text,
+        parent.logprob + child.logprob, child.children,
+    )
+
+
 def count_at_depth(root: TreeNode, depth: int) -> int:
+    """Liczba węzłów na głębokości `depth` (korzeń = 0)."""
     if depth == 0:
         return 1
     return sum(count_at_depth(c, depth - 1) for c in root.children)
@@ -123,15 +182,17 @@ def tree_shape(root: TreeNode) -> tuple[int, ...]:
     return tuple(shape)
 
 
+# expand(ogony, szerokość): ogon = tokeny dopisywane do kontekstu korzenia (`path_tokens`),
+# () dla samego korzenia. Wynik: dzieci każdego ogona, malejąco po prawdopodobieństwie.
 ExpandFn = Callable[[list[tuple[int, ...]], int], list[tuple[TreeNode, ...]]]
 
 
 def _allocate_leaves(
     root: TreeNode,
-    paths: list[tuple[int, ...]],
+    paths: list[Path],
     children: list[tuple[TreeNode, ...]],
     budget: int,
-) -> list[tuple[tuple[int, ...], tuple[TreeNode, ...]]]:
+) -> list[tuple[Path, tuple[TreeNode, ...]]]:
     """Rozdziel limit ostatniej kolumny: najpierw gałęzie o najwyższym łącznym logprobie.
 
     Rodzic dostaje dzieci w komplecie albo wcale — obcięcie pary do jednego dziecka dałoby
@@ -152,28 +213,44 @@ def grow_tree(
     upto_depth: int,
     expand: ExpandFn,
     max_leaves: int | None = None,
+    max_merges: int = MAX_CHAIN_MERGES,
 ) -> TreeNode:
     """Dolicz brakujące poziomy do `upto_depth`, doczepiając je wyłącznie do liści.
 
-    `expand(ścieżki, szerokość)` dostaje liście jednego poziomu naraz — to jeden batch
+    `expand(ogony, szerokość)` dostaje liście jednego poziomu naraz — to jeden batch
     na poziom. Szerokość wynika z głębokości, stąd po ponownym zakorzenieniu drzewa (4, 2, 2)
     nowy poziom ma szerokość `widths[2]`, nie `widths[0]`. `max_leaves` ogranicza liczbę boksów
     na głębokości `upto_depth`, łącznie z tymi, które już tam są.
+
+    Jedyne dziecko węzła pod korzeniem jest doklejane do niego (`merge_chain`), a sklejony węzeł
+    zostaje liściem na TEJ SAMEJ głębokości i jest rozwijany jeszcze raz — do `max_merges` razy
+    na poziom. Po limicie jedyne dziecko jest odrzucane: liść ma etykietę, rodzic z jednym
+    dzieckiem nie miałby jej wcale (patrz docstring modułu).
     """
     for depth in range(upto_depth):
-        paths = leaves_at(root, depth)
-        if not paths:
-            continue
         width = widths[min(depth, len(widths) - 1)]
         last = max_leaves is not None and depth == upto_depth - 1
-        budget = max_leaves - count_at_depth(root, upto_depth) if last else 0
-        if last and budget <= 0:
-            continue
-        pairs = list(zip(paths, expand(paths, width)))
-        if last:
-            pairs = _allocate_leaves(root, [p for p, _ in pairs], [c for _, c in pairs], budget)
-        for path, children in pairs:
-            root = attach(root, path, children)
+        paths = leaves_at(root, depth)
+        for merge_round in range(max_merges + 1):
+            if not paths:
+                break
+            budget = max_leaves - count_at_depth(root, upto_depth) if last else 0
+            if last and budget <= 0:
+                break
+            kids = expand([path_tokens(root, p) for p in paths], width)
+            pairs = list(zip(paths, kids))
+            if last:
+                pairs = _allocate_leaves(root, [p for p, _ in pairs], [c for _, c in pairs], budget)
+            again: list[Path] = []
+            for path, children in pairs:
+                if depth > 0 and len(children) == 1:
+                    if merge_round < max_merges:
+                        merged = merge_chain(node_at(root, path), children[0])
+                        root = _replace_node(root, path, merged)
+                        again.append(path[:-1] + (merged.key,))
+                    continue
+                root = attach(root, path, children)
+            paths = again
     return root
 
 
@@ -225,15 +302,32 @@ def pick_children(
     słownika, ale nie mniej niż `min_keep`. Jedyny token zostaje tylko wtedy, gdy sam niesie
     `top_p` — niepewne jedyne dziecko wybierałoby się samo (patrz docstring modułu).
     """
+    ranked = sorted(candidates, key=lambda c: -c[1])
+    return pick_nodes(
+        (((token_id,), decode(token_id), logprob) for token_id, logprob in ranked),
+        width, first_after_space, top_p, min_keep,
+    )
+
+
+def pick_nodes(
+    candidates: Iterable[tuple[tuple[int, ...], bytes, float]],
+    width: int,
+    first_after_space: bool = False,
+    top_p: float = 1.0,
+    min_keep: int = 1,
+) -> tuple[TreeNode, ...]:
+    """Jak `pick_children`, ale kandydaci to gotowe `(tokeny, tekst, logprob)`, JUŻ posortowani
+    malejąco — np. dokończenia słowa po cofnięciu do jego początku (tekst = część wystająca
+    za wpisane litery, tokeny = cała ścieżka)."""
     out: list[TreeNode] = []
     seen: set[str] = set()
     mass = 0.0
-    for token_id, logprob in sorted(candidates, key=lambda c: -c[1]):
-        text = clean_token(decode(token_id), first_after_space)
+    for tokens, raw, logprob in candidates:
+        text = clean_token(raw, first_after_space)
         if text is None or text in seen:
             continue
         seen.add(text)
-        out.append(TreeNode(token_id, text, logprob))
+        out.append(TreeNode(tuple(tokens), text, logprob))
         mass += math.exp(logprob)
         if len(out) >= width or (mass >= top_p and len(out) >= min_keep):
             break
@@ -251,6 +345,7 @@ def layout(root: TreeNode, max_depth: int = MAX_DEPTH) -> list[Box]:
     out: list[Box] = []
 
     def walk(node, path, depth, low, high):
+        """Dopisz do `out` boksy dzieci `node`, dzieląc [low, high] po równo, i zejdź niżej."""
         n = len(node.children)
         if not n or depth >= max_depth:
             return
@@ -259,7 +354,7 @@ def layout(root: TreeNode, max_depth: int = MAX_DEPTH) -> list[Box]:
             # Ten sam wzór na oba końce, więc sąsiednie boksy stykają się bitowo dokładnie.
             a = low + span * i / n
             b = high if i == n - 1 else low + span * (i + 1) / n
-            child_path = path + (child.token_id,)
+            child_path = path + (child.key,)
             out.append(Box(child, child_path, depth + 1, a, b))
             walk(child, child_path, depth + 1, a, b)
 
@@ -290,6 +385,9 @@ def column_x(span: float, n_children: int, view_range: float, expansion: float) 
 
 
 def box_x(box: Box, view_range: float, expansion: float, max_depth: int = MAX_DEPTH) -> tuple[float, float]:
+    """Lewa i prawa krawędź boksu jako ułamki drogi celownik..prawy brzeg. Boks na
+    ostatnim pokazywanym poziomie sięga prawego brzegu.
+    """
     n_children = len(box.node.children) if box.depth < max_depth else 0
     return column_x(box.span, n_children, view_range, expansion)
 
@@ -306,7 +404,7 @@ def focus_path(boxes: Iterable[Box], y: float) -> list[Box]:
     przeglądane od góry, więc wystarcza nierówność domknięta z obu stron.
     """
     path: list[Box] = []
-    prefix: tuple[int, ...] = ()
+    prefix: Path = ()
     boxes = list(boxes)
     for depth in range(1, MAX_DEPTH + 1):
         hit = next(
@@ -326,9 +424,22 @@ def reroot_view(view_low: float, view_high: float, box: Box) -> tuple[float, flo
     return (view_low - box.low) / box.span, (view_high - box.low) / box.span
 
 
-def rebase_born(born: dict[tuple[int, ...], float], token_id: int) -> dict[tuple[int, ...], float]:
+def rebase_born(born: dict[Path, float], key: Key) -> dict[Path, float]:
     """Czasy narodzin boksów po ponownym zakorzenieniu: ścieżki tracą pierwszy element."""
-    return {p[1:]: t for p, t in born.items() if len(p) > 1 and p[0] == token_id}
+    return {p[1:]: t for p, t in born.items() if len(p) > 1 and p[0] == key}
+
+
+def chain_origin(path: Path, known: Iterable[Path]) -> Path | None:
+    """Boks, z którego `path` powstał przez doklejenie łańcucha: ten sam rodzic, klucz
+    przedłużony („ę” -> „ętnie” między etapami liczenia). To ten sam boks w tym samym miejscu,
+    więc nie powinien rodzić się od nowa (wygaszanie, `BOX_SELECTABLE_S`)."""
+    parent, key = path[:-1], path[-1]
+    best: Path | None = None
+    for p in known:
+        if (len(p) == len(path) and p[:-1] == parent and len(p[-1]) < len(key)
+                and key[: len(p[-1])] == p[-1] and (best is None or len(p[-1]) > len(best[-1]))):
+            best = p
+    return best
 
 
 # ---------------------------------------------------------------------------
@@ -336,6 +447,7 @@ def rebase_born(born: dict[tuple[int, ...], float], token_id: int) -> dict[tuple
 # ---------------------------------------------------------------------------
 
 def ends_with_punct(text: str) -> bool:
+    """Czy tekst kończy się interpunkcją (znak ani biały, ani alfanumeryczny)."""
     return bool(text) and not text[-1].isspace() and not text[-1].isalnum()
 
 

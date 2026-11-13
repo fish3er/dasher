@@ -6,7 +6,7 @@ zawsze z `seq 0`, więc zmiana topologii nie wymaga re-pointingu cache'u.
 
 Dla UI to warunek działania, nie optymalizacja. Zmierzone p95 (2026-10-31, RX 6800 XT):
 drzewo (4, 2, 2) bez cache'u 355 / 560 / 1859 ms przy prefiksie ~26 / ~63 / ~250 tokenów,
-z cache'em 151 / 163 / 233 ms; `suggest()` bez cache'u do 2335 ms.
+z cache'em 151 / 163 / 233 ms; beam search paska słów bez cache'u do 2335 ms.
 
 Prefix zostaje w `seq 0` między etapami tej samej wersji tekstu, więc głębokości 2-3 i sugestie
 nie płacą za niego drugi raz. Odtwarzanie pomija `llama_memory_clear`: powtarzalność co do
@@ -22,7 +22,6 @@ from typing import Callable, Sequence
 from beam_search import (
     _MAX_NEW_TOKENS,
     LEVEL_MID_WORD,
-    LEVEL_WORD_BOUNDARY,
     BeamSearch,
     Suggestion,
     _Beam,
@@ -30,6 +29,10 @@ from beam_search import (
 from token_tree import DEFAULT_WIDTHS, EMPTY_ROOT
 
 logger = logging.getLogger(__name__)
+
+# Ile najlepszych dokończeń z cofnięcia startuje beam search paska słów (przed przycięciem
+# do `beam_width` po znormalizowanym logprobie).
+_BACKOFF_SEEDS = 24
 
 
 class CachedBeamSearch(BeamSearch):
@@ -41,6 +44,9 @@ class CachedBeamSearch(BeamSearch):
         n_ctx: int = 2048,
         seed: int | None = None,
     ) -> None:
+        """Załaduj model (patrz `BeamSearch.__init__`) i sprawdź, czy llama-cpp-python ma API
+        `llama_memory_*` potrzebne do kopiowania prefiksu między sekwencjami.
+        """
         super().__init__(gguf_path, n_gpu_layers=n_gpu_layers, n_batch=n_batch, n_ctx=n_ctx, seed=seed)
         from llama_cpp import llama_cpp as C
 
@@ -73,6 +79,7 @@ class CachedBeamSearch(BeamSearch):
         chunk_tokens = 0
 
         def flush(group: list[tuple[int, int, list[int]]]) -> None:
+            """Jedno `llama_decode` dla porcji sekwencji; logity ostatnich tokenów trafiają do `out`."""
             if not group:
                 return
             total = sum(len(t) for _s, _p, t in group)
@@ -118,12 +125,6 @@ class CachedBeamSearch(BeamSearch):
         flush(chunk)
         return out
 
-    def _kv_clear(self) -> None:
-        # Nieckowana ścieżka klasy bazowej czyści KV, więc seq 0 przestaje być prefiksem.
-        self._seq0_tokens = ()
-        self._seq0_logits = None
-        super()._kv_clear()
-
     def _prefill(self, tokens: list[int]):
         """Wsadź prefix do `seq 0` i zwróć logity jego OSTATNIEGO tokenu.
 
@@ -143,6 +144,7 @@ class CachedBeamSearch(BeamSearch):
         return logits
 
     def _ensure_prefill(self, tokens: Sequence[int]):
+        """Logity ostatniego tokenu prefiksu; prefill tylko, gdy w `seq 0` siedzi inny prefiks."""
         if tuple(tokens) != self._seq0_tokens or self._seq0_logits is None:
             return self._prefill(list(tokens))
         return self._seq0_logits
@@ -159,6 +161,9 @@ class CachedBeamSearch(BeamSearch):
         return self._decode_seqs(items)
 
     def _path_logits(self, ids: list[int], paths: list[tuple[int, ...]]):
+        """Logity po dopisaniu każdego ogona z `paths` do prefiksu `ids`: prefiks z cache'u,
+        ogony jednym batchem. Sam pusty ogon to logity prefiksu, bez dekodowania.
+        """
         first = self._ensure_prefill(ids)
         if paths == [()]:
             return [first]
@@ -167,26 +172,15 @@ class CachedBeamSearch(BeamSearch):
     # -- API ------------------------------------------------------------------
 
     def warmup(self) -> None:
-        """Pierwsze wywołania łykają kompilację shaderów Vulkan — niech nie trafią na UI."""
+        """Pierwsze wywołania łykają kompilację shaderów Vulkan — niech nie trafią na UI.
+        Tu też powstaje indeks słownika dla cofnięcia do początku słowa (~262k detokenizacji)."""
         ids, level = self.prefix_ids("Test warmup ")
         self.extend_tree(ids, EMPTY_ROOT, DEFAULT_WIDTHS, len(DEFAULT_WIDTHS), True)
         self.suggest_tokens(ids, level, n=5, beam_width=5, top_k=16)
-
-    def suggest(
-        self,
-        prefix: str,
-        n: int = 5,
-        beam_width: int = 5,
-        top_k: int | None = None,
-        top_p: float = 1.0,
-    ) -> list[Suggestion]:
-        """Jak `BeamSearch.suggest`, ale prefix idzie przez KV-cache."""
-        if not prefix:
-            return []
-        level = LEVEL_WORD_BOUNDARY if prefix[-1].isspace() else LEVEL_MID_WORD
-        tok_prefix = prefix.rstrip() if level == LEVEL_WORD_BOUNDARY else prefix
-        ids = self._llama.tokenize(tok_prefix.encode("utf-8"), add_bos=True, special=False)
-        return self.suggest_tokens(list(ids), level, n, beam_width, top_k, top_p)
+        self.vocab_index()
+        base_ids, typed = self.backoff_ids("Test warmup cof")
+        self.extend_tree(base_ids, EMPTY_ROOT, DEFAULT_WIDTHS, len(DEFAULT_WIDTHS), typed=typed)
+        self.suggest_backoff(base_ids, typed, n=5, beam_width=5, top_k=16)
 
     def suggest_tokens(
         self,
@@ -197,12 +191,32 @@ class CachedBeamSearch(BeamSearch):
         top_k: int | None = None,
         top_p: float = 1.0,
         should_abort: Callable[[], bool] | None = None,
+        seeds: Sequence[_Beam] | None = None,
+        typed: str = "",
     ) -> list[Suggestion]:
-        """Jak `BeamSearch.suggest`, ale na GOTOWYCH tokenach prefiksu i z cache'em KV.
+        """Do `n` dokończeń bieżącego słowa (`level` = środek słowa) albo następnego słowa
+        (granica), posortowanych malejąco po znormalizowanym logprobie (logprob / liczba tokenów).
 
-        Logika beamów (kandydaci, backfill, pruning, ranking) jest identyczna
-        z klasą bazową. `should_abort` sprawdzane między krokami: nowsze żądanie nie czeka
-        na sugestie dla tekstu, którego już nie ma.
+        Prefiks to GOTOWE tokeny (`prefix_ids` albo tokeny wybrane w paśmie), dekodowane raz
+        do KV-cache. Trzy parametry sterują przeszukiwaniem i mierzą RÓŻNE rzeczy:
+
+        * `beam_width` — ile beamów przeżywa krok. To zarazem **twardy sufit liczby
+          zwróconych sugestii**: `_finalize` iteruje po beamach, więc `beam_width < n`
+          sprawia, że `n` jest nieosiągalne niezależnie od jakości modelu.
+        * `top_k` — ile rozwinięć rozważamy per beam na krok (szerokość puli kandydatów).
+          Domyślnie `= beam_width`. Większe `top_k` przy stałym `beam_width` zwiększa
+          różnorodność bez zwiększania kosztu `llama_decode` (koszt to sortowanie).
+        * `top_p` — nucleus: z posortowanej puli zostaw najkrótszy prefiks o skumulowanym
+          prawdopodobieństwie >= `top_p`. **To przycinanie, nie losowanie** — beam search
+          jest deterministyczny. Powyżej ~0.9 zwykle no-op.
+
+        Beam zamknięty spacją w środku słowa to puste dokończenie: nie zajmuje slotu, a pętla
+        dobiera następnego kandydata (backfill). `should_abort` sprawdzane między krokami:
+        nowsze żądanie nie czeka na sugestie dla tekstu, którego już nie ma.
+
+        `seeds` + `typed`: start z gotowych beamów zamiast z pustego (cofnięcie do początku
+        słowa, `suggest_backoff`). Prefiks to wtedy kontekst SPRZED słowa, a `typed` (wpisana
+        część) jest odcinane z tekstu beamów.
         """
         prefix_tokens = list(prefix_tokens)
         if not prefix_tokens:
@@ -217,7 +231,10 @@ class CachedBeamSearch(BeamSearch):
         prefix_text = self._detokenize(prefix_tokens)
 
         first_logits = self._ensure_prefill(prefix_tokens)
-        beams: list[_Beam] = [_Beam(tokens=(), logprob=0.0, text="", complete=False)]
+        if seeds is None:
+            beams: list[_Beam] = [_Beam(tokens=(), logprob=0.0, text="", complete=False)]
+        else:
+            beams = self._prune_beams(list(seeds), beam_width)
 
         for step in range(_MAX_NEW_TOKENS):
             if should_abort is not None and should_abort():
@@ -225,7 +242,7 @@ class CachedBeamSearch(BeamSearch):
             active = [b for b in beams if not b.complete]
             if not active:
                 break
-            if step == 0:
+            if step == 0 and seeds is None:
                 # Krok 0: jedyny beam jest pusty, więc logity to wynik samego prefillu.
                 logits_list = [first_logits]
             else:
@@ -235,7 +252,7 @@ class CachedBeamSearch(BeamSearch):
             for beam, logits in zip(active, logits_list):
                 for tok, lp in self._nucleus(self._topk_logprobs(logits, n_expansions), top_p):
                     candidates.append((beam.logprob + lp, beam, tok, lp))
-            candidates.sort(key=lambda c: (c[0]) / (len(c[1].tokens) + 1), reverse=True)
+            candidates.sort(key=lambda c: c[0] / (len(c[1].tokens) + 1 - c[1].skip), reverse=True)
 
             done_beams = [b for b in beams if b.complete]
             new_beams: list[_Beam] = []
@@ -244,13 +261,50 @@ class CachedBeamSearch(BeamSearch):
                     break
                 tokens = beam.tokens + (tok,)
                 full_text = self._detokenize(prefix_tokens + list(tokens))
-                cont = full_text[len(prefix_text):]
+                cont = full_text[len(prefix_text) + len(typed):]
                 text, boundary = self._extract(level, cont)
                 complete = boundary or tok == self._eos
                 if complete and level == LEVEL_MID_WORD and not text:
                     continue  # puste dokończenie mid-word nie zajmuje slotu
-                new_beams.append(_Beam(tokens=tokens, logprob=cum_lp, text=text, complete=complete))
+                new_beams.append(_Beam(
+                    tokens=tokens, logprob=cum_lp, text=text, complete=complete, skip=beam.skip,
+                ))
 
             beams = self._prune_beams(done_beams + new_beams, beam_width)
 
         return self._finalize(beams, level, n)
+
+    def suggest_backoff(
+        self,
+        prefix_tokens: Sequence[int],
+        typed: str,
+        n: int = 5,
+        beam_width: int = 5,
+        top_k: int | None = None,
+        top_p: float = 1.0,
+        should_abort: Callable[[], bool] | None = None,
+    ) -> list[Suggestion]:
+        """Dokończenia bieżącego słowa z cofnięciem do jego początku (G&V, `word_backoff`).
+
+        `prefix_tokens` = kontekst sprzed słowa, `typed` = wpisana część. Beamy startują
+        z dokończeń: hipoteza (wpisana część) + token, który za nią wystaje, z P warunkowym
+        względem wpisanego tekstu. Dalej zwykły beam search do granicy słowa.
+        """
+        res = self.backoff(prefix_tokens, typed, should_abort)
+        if res is None:
+            return []
+        seeds: list[_Beam] = []
+        for c in res.completions[: _BACKOFF_SEEDS]:
+            text, boundary = self._extract(LEVEL_MID_WORD, c.suffix)
+            if boundary and not text:
+                continue  # słowo już się skończyło: to następne słowo, nie dokończenie
+            seeds.append(_Beam(
+                tokens=c.tokens, logprob=c.logprob, text=text, complete=boundary,
+                skip=len(c.tokens) - 1,
+            ))
+        if not seeds:
+            return []
+        return self.suggest_tokens(
+            prefix_tokens, LEVEL_MID_WORD, n, beam_width, top_k, top_p, should_abort,
+            seeds=seeds, typed=typed,
+        )
