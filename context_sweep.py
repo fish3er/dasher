@@ -658,3 +658,101 @@ def sweep_position_gv(gv, doc_text: str, pos: TargetPosition, params: SweepParam
             row["phrases_ms"] = round((time.perf_counter() - t4) * 1000.0, 3)
         rows.append(row)
     return rows
+
+
+# ---------------------------------------------------------------------------
+# Backend z brancha `testing` (UI: G&V + sklejanie łańcuchów), kopia w backend_testing/
+# ---------------------------------------------------------------------------
+
+TESTING_DIR = Path(__file__).resolve().parent / "backend_testing"
+TESTING_FILES = ("token_tree.py", "word_backoff.py", "beam_search.py")
+
+
+def load_testing_backend(n_ctx: int, n_batch: int):
+    """Moduł `beam_search` z brancha `testing` (kopia 1:1 w `backend_testing/`) pod nazwą
+    `testing_beam_search`, z limitami kontekstu z configu evalu.
+
+    Kopia importuje `token_tree` i `word_backoff` bezwzględnie. Tych nazw nie ma w tym worktree,
+    więc rejestrujemy je w `sys.modules` z kopii. Tutejszy `beam_search` (legacy) zostaje
+    nietknięty. UI ma n_ctx 2048 (ogon 1000 znaków), a c_len sięga 5000 tokenów, więc
+    `N_CTX`/`N_BATCH` są podnoszone do wartości configu przed utworzeniem modelu.
+    """
+    import importlib.util
+    import sys
+
+    def load(alias: str, fname: str):
+        """Załaduj plik z `backend_testing/` jako moduł `alias` (raz)."""
+        path = TESTING_DIR / fname
+        mod = sys.modules.get(alias)
+        if mod is not None:
+            if Path(getattr(mod, "__file__", "")).resolve() != path:
+                raise RuntimeError(f"Moduł {alias} jest już załadowany z {mod.__file__}, nie z {path}")
+            return mod
+        spec = importlib.util.spec_from_file_location(alias, path)
+        mod = importlib.util.module_from_spec(spec)
+        sys.modules[alias] = mod
+        spec.loader.exec_module(mod)
+        return mod
+
+    load("token_tree", "token_tree.py")
+    load("word_backoff", "word_backoff.py")
+    tb = load("testing_beam_search", "beam_search.py")
+    tb.N_CTX, tb.N_BATCH = int(n_ctx), int(n_batch)
+    return tb
+
+
+def testing_suggest(tb, backend, text: str) -> tuple[list, bool, int]:
+    """Pasek słów jak w UI brancha `testing` (`ui_worker._process`): w środku słowa cofnięcie
+    do jego początku (G&V), bez dokończeń albo na granicy słowa zwykły beam search.
+    Zwraca (sugestie, czy było cofnięcie, liczba tokenów kontekstu)."""
+    if text and tb.text_level(text) == tb.LEVEL_MID_WORD:
+        heal = backend.backoff_ids(text)
+        if heal is not None:
+            ids, typed = heal
+            suggestions = backend.suggest_backoff(ids, typed)
+            if suggestions:
+                return suggestions, True, len(ids)
+    # Pusty tekst (c_len 0 na granicy słowa): UI nic by nie liczyło, eval pyta o sam BOS
+    # — tak samo jak `build_prefix_tokens` dla legacy.
+    ids, level = backend.prefix_ids(text)
+    return backend.suggest_tokens(ids, level), False, len(ids)
+
+
+def sweep_position_testing(tb, backend, doc_text: str, pos: TargetPosition,
+                           params: SweepParams) -> list[dict]:
+    """Jak `sweep_position`, ale backendem jest `BeamSearch` z brancha `testing`. Tekst wejścia
+    to ostatnie `c_len` tokenów przed słowem + `immediate_prefix` (bez `rstrip`: backend
+    sam ucina spację na granicy słowa i sam cofa się w środku słowa)."""
+    rows: list[dict] = []
+    context_text = doc_text[: pos.word_start]
+    ctx_tokens = backend._llama.tokenize(
+        context_text.encode("utf-8"), add_bos=False, special=False
+    ) if context_text else []
+    for c_len in params.c_lens:
+        kept = list(ctx_tokens[-c_len:]) if c_len > 0 else []
+        text = (backend._detokenize(kept) if kept else "") + pos.immediate_prefix
+        t0 = time.perf_counter()
+        suggestions, healed, n_prefix = testing_suggest(tb, backend, text)
+        latency_ms = (time.perf_counter() - t0) * 1000.0
+        rows.append({
+            "doc_id": pos.doc_id,
+            "word_index": pos.word_index,
+            "cursor": pos.cursor,
+            "c_len": c_len,
+            "c_len_effective": len(kept),
+            "c_len_truncated": len(kept) < c_len,
+            "prefix_tokens": n_prefix,
+            "level": pos.level,
+            "segment": pos.segment,
+            "seen_before": pos.seen_before,
+            "immediate_prefix": pos.immediate_prefix,
+            "immediate_prefix_len": len(pos.immediate_prefix),
+            "ground_truth": pos.ground_truth,
+            "word": pos.word,
+            "suggestions": [s.text for s in suggestions],
+            "complete": [s.complete for s in suggestions],
+            "scores": [round(s.score, 6) for s in suggestions],
+            "latency_ms": round(latency_ms, 3),
+            "healed": healed,
+        })
+    return rows

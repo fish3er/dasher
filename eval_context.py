@@ -57,6 +57,7 @@ logger = logging.getLogger("eval_context")
 
 SEARCH_LEGACY = "legacy"
 SEARCH_GV = "gv"
+SEARCH_TESTING = "testing"  # backend UI z brancha `testing` (kopia w backend_testing/)
 
 
 def normalize_corpus_text(text: str) -> str:
@@ -453,6 +454,20 @@ def run(cfg: RunConfig, smoke: bool = False) -> Path:
                 )
                 sweep = lambda b, text, p, prm, i: sweep_position_gv(  # noqa: E731
                     b, text, p, prm, with_timing=cfg.timing_every > 0 and i % cfg.timing_every == 0)
+            elif cfg.search == SEARCH_TESTING:
+                from context_sweep import load_testing_backend, sweep_position_testing
+
+                tb = load_testing_backend(cfg.n_ctx, cfg.n_batch)
+                # Backend UI ma parametry paska słów jako stałe — run musi mieć te same.
+                want = (tb.N_SUGGESTIONS, tb.BEAM_WIDTH, tb.TOP_K, 1.0, KV_MULTI_SEQ, False)
+                got = (cfg.n_suggestions, cfg.beam_width, cfg.top_k, cfg.top_p, kv_mode,
+                       cfg.prefill_reuse)
+                if got != want:
+                    raise SystemExit(f"--search testing wymaga (n_suggestions, beam_width, top_k, "
+                                     f"top_p, kv_mode, prefill_reuse) = {want}, config ma {got}")
+                backend = tb.BeamSearch(str(cfg.gguf))
+                backend.vocab_index()  # indeks G&V przed pomiarem, nie w pierwszej pozycji
+                sweep = lambda b, text, p, prm, i: sweep_position_testing(tb, b, text, p, prm)  # noqa: E731
             else:
                 backend = CachedBeamSearch(
                     str(cfg.gguf), n_gpu_layers=cfg.n_gpu_layers, n_batch=cfg.n_batch,
@@ -528,9 +543,14 @@ def run(cfg: RunConfig, smoke: bool = False) -> Path:
         yaml.safe_dump({k: (str(v) if isinstance(v, Path) else v)
                         for k, v in asdict(cfg).items()},
                        allow_unicode=True, sort_keys=True), encoding="utf-8")
+    backend_info: dict = {"kv_modes": kv_modes, "smoke": smoke}
+    if cfg.search == SEARCH_TESTING:
+        from context_sweep import TESTING_DIR, TESTING_FILES
+
+        backend_info["backend_testing_sha256"] = {
+            f: hashlib.sha256((TESTING_DIR / f).read_bytes()).hexdigest() for f in TESTING_FILES}
     (out_dir / "env_log.json").write_text(
-        json.dumps(env_log(cfg, {"kv_modes": kv_modes, "smoke": smoke}), indent=2,
-                   ensure_ascii=False), encoding="utf-8")
+        json.dumps(env_log(cfg, backend_info), indent=2, ensure_ascii=False), encoding="utf-8")
     return out_dir
 
 
@@ -648,8 +668,9 @@ def main(argv: list[str] | None = None) -> None:
                         help="Nadpisz siatkę c_len, po przecinku (np. 0,8,64,1000)")
     parser.add_argument("--seeds", type=str, default=None,
                         help="Nadpisz listę seedów, po przecinku (np. 1,2,3)")
-    parser.add_argument("--search", choices=(SEARCH_LEGACY, SEARCH_GV), default=None,
-                        help="Algorytm podpowiedzi: legacy (BeamSearch) albo gv (Gaines & Vertanen)")
+    parser.add_argument("--search", choices=(SEARCH_LEGACY, SEARCH_GV, SEARCH_TESTING), default=None,
+                        help="Algorytm podpowiedzi: legacy (BeamSearch), gv (Gaines & Vertanen) "
+                             "albo testing (backend UI z brancha testing, backend_testing/)")
     parser.add_argument("--gv-config", type=Path, default=None)
     parser.add_argument("--corpus-glob", default=None, help="np. podcast_clean.txt")
     parser.add_argument("--results-dir", type=Path, default=None)

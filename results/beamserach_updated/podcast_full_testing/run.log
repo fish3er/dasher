@@ -1,0 +1,148 @@
+2026-11-13 12:40:20,146 INFO eval_context: Wczytano 1 dokumentów, łącznie 52564 kandydujących pozycji targetów
+2026-11-13 12:40:20,167 INFO testing_beam_search: Ładowanie modelu GGUF: models/google_gemma-4-E4B-it-Q4_K_M.gguf
+llama_context: n_ctx_seq (16384) < n_ctx_train (131072) -- the full capacity of the model will not be utilized
+llama_kv_cache_iswa: using full-size SWA cache (ref: https://github.com/ggml-org/llama.cpp/pull/13194#issuecomment-2868343055)
+llama_kv_cache: the V embeddings have different sizes across layers and FA is not enabled - padding V cache to 1024
+llama_kv_cache: the V embeddings have different sizes across layers and FA is not enabled - padding V cache to 1024
+2026-11-13 12:40:21,983 INFO testing_beam_search: Model załadowany (n_vocab=262144, n_seq_max=64).
+2026-11-13 12:40:23,140 INFO eval_context: [testing/multi_seq] rozgrzewka gotowa
+2026-11-13 12:40:29,947 INFO eval_context: [testing/multi_seq seed=1 podcast_clean] 10/600 pozycji, 10 s
+2026-11-13 12:40:40,763 INFO eval_context: [testing/multi_seq seed=1 podcast_clean] 20/600 pozycji, 21 s
+2026-11-13 12:40:53,266 INFO eval_context: [testing/multi_seq seed=1 podcast_clean] 30/600 pozycji, 33 s
+2026-11-13 12:41:07,356 INFO eval_context: [testing/multi_seq seed=1 podcast_clean] 40/600 pozycji, 47 s
+2026-11-13 12:41:24,129 INFO eval_context: [testing/multi_seq seed=1 podcast_clean] 50/600 pozycji, 64 s
+2026-11-13 12:41:44,329 INFO eval_context: [testing/multi_seq seed=1 podcast_clean] 60/600 pozycji, 84 s
+2026-11-13 12:42:11,668 INFO eval_context: [testing/multi_seq seed=1 podcast_clean] 70/600 pozycji, 112 s
+2026-11-13 12:42:47,967 INFO eval_context: [testing/multi_seq seed=1 podcast_clean] 80/600 pozycji, 148 s
+2026-11-13 12:43:25,306 INFO eval_context: [testing/multi_seq seed=1 podcast_clean] 90/600 pozycji, 185 s
+2026-11-13 12:44:03,189 INFO eval_context: [testing/multi_seq seed=1 podcast_clean] 100/600 pozycji, 223 s
+2026-11-13 12:44:40,977 INFO eval_context: [testing/multi_seq seed=1 podcast_clean] 110/600 pozycji, 261 s
+2026-11-13 12:45:23,877 INFO eval_context: [testing/multi_seq seed=1 podcast_clean] 120/600 pozycji, 304 s
+2026-11-13 12:46:07,147 INFO eval_context: [testing/multi_seq seed=1 podcast_clean] 130/600 pozycji, 347 s
+2026-11-13 12:46:52,963 INFO eval_context: [testing/multi_seq seed=1 podcast_clean] 140/600 pozycji, 393 s
+2026-11-13 12:47:44,041 INFO eval_context: [testing/multi_seq seed=1 podcast_clean] 150/600 pozycji, 444 s
+2026-11-13 12:48:34,930 INFO eval_context: [testing/multi_seq seed=1 podcast_clean] 160/600 pozycji, 495 s
+2026-11-13 12:49:24,614 INFO eval_context: [testing/multi_seq seed=1 podcast_clean] 170/600 pozycji, 544 s
+2026-11-13 12:50:17,500 INFO eval_context: [testing/multi_seq seed=1 podcast_clean] 180/600 pozycji, 597 s
+2026-11-13 12:51:09,684 INFO eval_context: [testing/multi_seq seed=1 podcast_clean] 190/600 pozycji, 650 s
+2026-11-13 12:52:02,203 INFO eval_context: [testing/multi_seq seed=1 podcast_clean] 200/600 pozycji, 702 s
+2026-11-13 12:52:55,477 INFO eval_context: [testing/multi_seq seed=1 podcast_clean] 210/600 pozycji, 755 s
+2026-11-13 12:53:47,021 INFO eval_context: [testing/multi_seq seed=1 podcast_clean] 220/600 pozycji, 807 s
+2026-11-13 12:54:37,867 INFO eval_context: [testing/multi_seq seed=1 podcast_clean] 230/600 pozycji, 858 s
+2026-11-13 12:55:30,335 INFO eval_context: [testing/multi_seq seed=1 podcast_clean] 240/600 pozycji, 910 s
+2026-11-13 12:56:24,325 INFO eval_context: [testing/multi_seq seed=1 podcast_clean] 250/600 pozycji, 964 s
+2026-11-13 12:57:15,850 INFO eval_context: [testing/multi_seq seed=1 podcast_clean] 260/600 pozycji, 1016 s
+2026-11-13 12:58:07,784 INFO eval_context: [testing/multi_seq seed=1 podcast_clean] 270/600 pozycji, 1068 s
+2026-11-13 12:58:59,959 INFO eval_context: [testing/multi_seq seed=1 podcast_clean] 280/600 pozycji, 1120 s
+2026-11-13 12:59:51,671 INFO eval_context: [testing/multi_seq seed=1 podcast_clean] 290/600 pozycji, 1172 s
+2026-11-13 13:00:43,183 INFO eval_context: [testing/multi_seq seed=1 podcast_clean] 300/600 pozycji, 1223 s
+2026-11-13 13:01:36,718 INFO eval_context: [testing/multi_seq seed=1 podcast_clean] 310/600 pozycji, 1277 s
+2026-11-13 13:02:29,217 INFO eval_context: [testing/multi_seq seed=1 podcast_clean] 320/600 pozycji, 1329 s
+2026-11-13 13:03:22,042 INFO eval_context: [testing/multi_seq seed=1 podcast_clean] 330/600 pozycji, 1382 s
+2026-11-13 13:04:12,692 INFO eval_context: [testing/multi_seq seed=1 podcast_clean] 340/600 pozycji, 1433 s
+2026-11-13 13:05:07,535 INFO eval_context: [testing/multi_seq seed=1 podcast_clean] 350/600 pozycji, 1487 s
+2026-11-13 13:05:58,053 INFO eval_context: [testing/multi_seq seed=1 podcast_clean] 360/600 pozycji, 1538 s
+2026-11-13 13:06:52,789 INFO eval_context: [testing/multi_seq seed=1 podcast_clean] 370/600 pozycji, 1593 s
+2026-11-13 13:07:48,210 INFO eval_context: [testing/multi_seq seed=1 podcast_clean] 380/600 pozycji, 1648 s
+2026-11-13 13:08:40,455 INFO eval_context: [testing/multi_seq seed=1 podcast_clean] 390/600 pozycji, 1700 s
+2026-11-13 13:09:33,696 INFO eval_context: [testing/multi_seq seed=1 podcast_clean] 400/600 pozycji, 1754 s
+2026-11-13 13:10:24,421 INFO eval_context: [testing/multi_seq seed=1 podcast_clean] 410/600 pozycji, 1804 s
+2026-11-13 13:11:16,451 INFO eval_context: [testing/multi_seq seed=1 podcast_clean] 420/600 pozycji, 1856 s
+2026-11-13 13:12:08,259 INFO eval_context: [testing/multi_seq seed=1 podcast_clean] 430/600 pozycji, 1908 s
+2026-11-13 13:13:00,266 INFO eval_context: [testing/multi_seq seed=1 podcast_clean] 440/600 pozycji, 1960 s
+2026-11-13 13:13:53,937 INFO eval_context: [testing/multi_seq seed=1 podcast_clean] 450/600 pozycji, 2014 s
+2026-11-13 13:14:44,663 INFO eval_context: [testing/multi_seq seed=1 podcast_clean] 460/600 pozycji, 2065 s
+2026-11-13 13:15:37,679 INFO eval_context: [testing/multi_seq seed=1 podcast_clean] 470/600 pozycji, 2118 s
+2026-11-13 13:16:28,437 INFO eval_context: [testing/multi_seq seed=1 podcast_clean] 480/600 pozycji, 2168 s
+2026-11-13 13:17:21,084 INFO eval_context: [testing/multi_seq seed=1 podcast_clean] 490/600 pozycji, 2221 s
+2026-11-13 13:18:11,179 INFO eval_context: [testing/multi_seq seed=1 podcast_clean] 500/600 pozycji, 2271 s
+2026-11-13 13:19:02,983 INFO eval_context: [testing/multi_seq seed=1 podcast_clean] 510/600 pozycji, 2323 s
+2026-11-13 13:19:53,732 INFO eval_context: [testing/multi_seq seed=1 podcast_clean] 520/600 pozycji, 2374 s
+2026-11-13 13:20:48,499 INFO eval_context: [testing/multi_seq seed=1 podcast_clean] 530/600 pozycji, 2428 s
+2026-11-13 13:21:41,026 INFO eval_context: [testing/multi_seq seed=1 podcast_clean] 540/600 pozycji, 2481 s
+2026-11-13 13:22:30,069 INFO eval_context: [testing/multi_seq seed=1 podcast_clean] 550/600 pozycji, 2530 s
+2026-11-13 13:23:21,324 INFO eval_context: [testing/multi_seq seed=1 podcast_clean] 560/600 pozycji, 2581 s
+2026-11-13 13:24:11,414 INFO eval_context: [testing/multi_seq seed=1 podcast_clean] 570/600 pozycji, 2631 s
+2026-11-13 13:25:02,137 INFO eval_context: [testing/multi_seq seed=1 podcast_clean] 580/600 pozycji, 2682 s
+2026-11-13 13:25:52,635 INFO eval_context: [testing/multi_seq seed=1 podcast_clean] 590/600 pozycji, 2732 s
+2026-11-13 14:49:18,700 INFO eval_context: [testing/multi_seq seed=1 podcast_clean] 600/600 pozycji, 2820 s
+2026-11-13 14:49:18,837 INFO eval_context: Zmierzono 3000 rekordów w 2820 s
+2026-11-13 14:49:27,967 INFO eval_context: Liczę sha256 modelu (5.4 GB, jednorazowo)...
+
+=== E1: Hit@1 vs c_len — matcher `strict` ===
+  c_len      N   poz.    Hit@1            CI 95%     seedy min-max    Hit@K  obcięte  lat.mean
+----------------------------------------------------------------------------------------------
+      0    600    595    0.025    [0.013, 0.040]       0.025-0.025    0.030       0%       105
+    250    600    595    0.303    [0.265, 0.341]       0.303-0.303    0.382       2%       238
+   1000    600    595    0.315    [0.279, 0.353]       0.315-0.315    0.395       7%       593
+   2000    600    595    0.312    [0.276, 0.349]       0.312-0.312    0.398      11%      1090
+   5000    600    595    0.320    [0.283, 0.357]       0.320-0.320    0.402      27%      2608
+
+--- seen vs unseen (główny wykres tezy) ---
+  c_len                  seen                unseen
+---------------------------------------------------
+      0         0.027 (n=490)         0.018 (n=110)
+    250         0.288 (n=490)         0.373 (n=110)
+   1000         0.300 (n=490)         0.382 (n=110)
+   2000         0.294 (n=490)         0.391 (n=110)
+   5000         0.304 (n=490)         0.391 (n=110)
+
+--- segmenty ---
+  c_len      first_word        mid_word           later
+-------------------------------------------------------
+      0   0.000 (n=200)   0.075 (n=200)   0.000 (n=200)
+    250   0.060 (n=200)   0.655 (n=200)   0.195 (n=200)
+   1000   0.055 (n=200)   0.665 (n=200)   0.225 (n=200)
+   2000   0.055 (n=200)   0.670 (n=200)   0.210 (n=200)
+   5000   0.070 (n=200)   0.670 (n=200)   0.220 (n=200)
+
+=== E2: użyteczność sesyjna (c_len=5000) — matcher `strict` ===
+kubełek               N    Hit@1            CI 95%    Hit@K
+-----------------------------------------------------------
+overall             600    0.320    [0.283, 0.357]    0.402
+first_word          200    0.070    [0.035, 0.105]    0.120
+mid_word            200    0.670    [0.600, 0.735]    0.760
+later               200    0.220    [0.160, 0.280]    0.325
+seen_seen           490    0.304    [0.265, 0.346]    0.390
+seen_unseen         110    0.391    [0.303, 0.482]    0.455
+
+=== E1: Hit@1 vs c_len — matcher `lemma` ===
+  c_len      N   poz.    Hit@1            CI 95%     seedy min-max    Hit@K  obcięte  lat.mean
+----------------------------------------------------------------------------------------------
+      0    600    595    0.037    [0.023, 0.053]       0.037-0.037    0.053       0%       105
+    250    600    595    0.327    [0.288, 0.364]       0.327-0.327    0.402       2%       238
+   1000    600    595    0.335    [0.298, 0.372]       0.335-0.335    0.407       7%       593
+   2000    600    595    0.327    [0.290, 0.364]       0.327-0.327    0.408      11%      1090
+   5000    600    595    0.337    [0.298, 0.375]       0.337-0.337    0.423      27%      2608
+
+--- seen vs unseen (główny wykres tezy) ---
+  c_len                  seen                unseen
+---------------------------------------------------
+      0         0.037 (n=490)         0.036 (n=110)
+    250         0.312 (n=490)         0.391 (n=110)
+   1000         0.318 (n=490)         0.409 (n=110)
+   2000         0.310 (n=490)         0.400 (n=110)
+   5000         0.320 (n=490)         0.409 (n=110)
+
+--- segmenty ---
+  c_len      first_word        mid_word           later
+-------------------------------------------------------
+      0   0.000 (n=200)   0.110 (n=200)   0.000 (n=200)
+    250   0.060 (n=200)   0.710 (n=200)   0.210 (n=200)
+   1000   0.055 (n=200)   0.710 (n=200)   0.240 (n=200)
+   2000   0.055 (n=200)   0.700 (n=200)   0.225 (n=200)
+   5000   0.070 (n=200)   0.705 (n=200)   0.235 (n=200)
+
+=== E2: użyteczność sesyjna (c_len=5000) — matcher `lemma` ===
+kubełek               N    Hit@1            CI 95%    Hit@K
+-----------------------------------------------------------
+overall             600    0.337    [0.298, 0.375]    0.423
+first_word          200    0.070    [0.035, 0.105]    0.120
+mid_word            200    0.705    [0.635, 0.766]    0.805
+later               200    0.235    [0.175, 0.295]    0.345
+seen_seen           490    0.320    [0.279, 0.362]    0.412
+seen_unseen         110    0.409    [0.321, 0.495]    0.473
+
+Latencja: 927 ms mean / 547 p50 / 3087 p95 / 29197 max
+
+Wyniki: results/beamserach_updated/podcast_full_testing/20261113_124020_testing_16c77168
