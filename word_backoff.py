@@ -1,30 +1,11 @@
-"""Cofnięcie do początku słowa — Gaines & Vertanen (2025), Algorithm 1–2.
+"""Cofnięcie do początku słowa — Gaines & Vertanen (2025), Algorithm 1–2 (arXiv 2501.10582).
 
-Źródło: Gaines & Vertanen, *Adapting Large Language Models for Character-based Augmentative
-and Alternative Communication*, Findings of EMNLP 2025 (arXiv 2501.10582), sekcja 3 i dodatek C.
-Ta sama metoda co `gv_search.py` na branchu `beamserach-updated`, okrojona do tego UI: kontekst
-zostaje w oryginalnej wielkości liter i bez filtra alfabetu, bo pasmo pokazuje dokładne tokeny
-modelu, a nie rozkład liter.
-
-Problem: litery z paska kończą tekst w dowolnym miejscu słowa, a tokenizacja tekstu do kursora
-daje tokeny, których kanoniczna tokenizacja całego słowa nigdy nie produkuje. „bar” to `▁bar`,
-a „bardzo” to jeden token `▁bardzo`, więc po `▁bar` model zna tylko słowa typu „barwnie” —
-„bardzo” ma p ≈ 0. Na 12 zdaniach testowych tak było na 67% pozycji w środku słowa:
-P(poprawna następna litera) spadało tam średnio do 0.29 (mediana 0.01).
-
-Rozwiązanie: kontekst modelu kończy się PRZED bieżącym słowem (na ostatniej spacji; tokeny Gemmy
-niosą spację na początku, więc to zawsze granica tokenu), a wpisaną część słowa model generuje
-sam, wyłącznie tokenami zgodnymi z wpisanym tekstem:
-
-* hipoteza = tokeny, które w całości mieszczą się we wpisanej części (` ch`, albo ` c` + `h`),
-* dokończenie = hipoteza + token, który za nią WYSTAJE (` ch` + `ę`, albo samo ` chce`),
-* P(dokończenia | wpisany tekst) = P(ścieżki) / suma po WSZYSTKICH dokończeniach (`log_z`),
-  czyli po wszystkich tokenizacjach wpisanej części.
-
-Hipotezy są przycinane do `beam_width` najlepszych na rundę (wartość z artykułu: 8) oraz progiem
-`PRUNE_NATS` względem najlepszej. Każda runda to jedno batchowane dekodowanie, a hipoteza w każdej
-rundzie pokrywa co najmniej jeden znak więcej, więc rund jest najwyżej tyle, ile znaków wpisano,
-plus jedna — w praktyce tyle, ile tokenów ma kanoniczny podział, plus jedna.
+Litery z paska kończą tekst w środku słowa, a jego tokenizacja daje tokeny, których kanoniczny
+podział nigdy nie produkuje (`▁bar` przed `dzo`, choć „bardzo” to jeden token), więc model
+przewiduje inne słowa. Tu kontekst kończy się PRZED bieżącym słowem, a wpisaną część model
+generuje sam, tylko tokenami zgodnymi z wpisanym tekstem: hipoteza = tokeny mieszczące się
+we wpisanej części, dokończenie = hipoteza + token, który za nią wystaje. P(dokończenia) jest
+warunkowe względem wpisanego tekstu, czyli sumowane po wszystkich jego tokenizacjach (`log_z`).
 """
 
 from __future__ import annotations
@@ -36,17 +17,11 @@ from typing import Callable, Sequence
 
 import numpy as np
 
-# Wartość z artykułu.
-BEAM_WIDTH = 8
-# Ile najlepszych dokończeń zostaje z rundy (i łącznie). Pasmo pokazuje ich kilka, pasek słów
-# startuje z kilkunastu; masa liczy się i tak po WSZYSTKICH dokończeniach (`log_z`).
-KEEP = 64
-# Dłuższy „wyraz” to raczej adres albo ciąg bez spacji — cofanie byłoby drogie i bez sensu.
-MAX_TYPED_CHARS = 32
-# Hipoteza gorsza o tyle natów od najlepszej (albo od zebranej już masy dokończeń) odpada.
-# Dokładanie tokenów tylko obniża logprob, więc jej wkład to < e^-8 ≈ 3·10⁻⁴ masy. Bez tego
-# podziały na pojedyncze litery (` d` + `z` + `i`…) ciągną wyszukiwanie przez wszystkie znaki
-# słowa: „ dziećm” 7 rund / 412 ms zamiast 4. Artykuł ma tylko limit beamu (8).
+BEAM_WIDTH = 8         # hipotez na rundę (wartość z artykułu)
+KEEP = 64              # najlepszych dokończeń zostaje; masa i tak liczy się po wszystkich
+MAX_TYPED_CHARS = 32   # dłuższy „wyraz” (adres, ciąg bez spacji) — bez cofania
+# Hipoteza gorsza o tyle natów od najlepszej (albo od zebranej masy) odpada: jej wkład to
+# < e^-8 ≈ 3·10⁻⁴, a podziały na pojedyncze litery ciągnęłyby szukanie przez całe słowo.
 PRUNE_NATS = 8.0
 
 _SENTINEL = "\U0010ffff"

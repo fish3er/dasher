@@ -1,30 +1,26 @@
-"""AI Dasher — UI na cztery pasma (branch `ux/dwell-bars`).
+"""AI Dasher: pisanie drzewem tokenów (sterowanie jak w Dasherze) i paskami dwell.
 
-Od góry: tekst (segmenty), pasek słów (dwell), drzewo tokenów (sterowanie jak
-w Dasherze), pasek liter (dwell). Tu jest tylko rysowanie i spinanie — logika siedzi
-w modułach testowanych bez tkintera: `dwell`, `token_tree`, `segments`, `bars`, `steering`,
-`ui_worker`, `session_log`.
+Od góry: tekst z polem czułości myszy, pasek słów, pasmo z drzewem tokenów, pasek liter.
+Tu jest tylko rysowanie i spinanie; logika siedzi w modułach bez tkintera.
 
-    python3 main.py                          # model z katalogu models/ obok main.py
-    python3 main.py --gguf inny/plik.gguf
-    python3 main.py --fake-model --log-dir session_logs
+    python3 main.py                  # model z katalogu models/ obok main.py
+    python3 main.py --gguf plik.gguf
 """
 
 import argparse
 import base64
 import logging
 import math
-import os
 import struct
 import time
 import tkinter as tk
 import tkinter.font as tkfont
 import zlib
-from dataclasses import dataclass, fields
 from pathlib import Path
 
 from bars import LETTERS, BarItem, item_at, item_span, letter_items, word_items
-from dwell import EVENT_CANCEL, EVENT_FIRE, DwellTracker
+from beam_search import N_SUGGESTIONS, BeamSearch
+from dwell import DwellTracker
 from segments import (
     SOURCE_LETTER,
     SOURCE_TOKEN,
@@ -36,8 +32,7 @@ from segments import (
     Segment,
     undo_progress,
 )
-from session_log import SessionLog
-from steering import SteerGate, Steering, View, ViewEase, in_deadzone, steering_target
+from steering import DEADZONE_PX, SteerGate, Steering, View, ViewEase, in_deadzone, steering_target
 from token_tree import (
     EMPTY_ROOT,
     box_x,
@@ -49,159 +44,58 @@ from token_tree import (
     reroot_view,
     root_x,
     token_label,
-    tree_shape,
 )
-from ui_worker import Request, TreeReady, UIWorker, WordsReady, WorkerParams
+from ui_worker import Request, TreeReady, UIWorker, WordsReady
 
-logger = logging.getLogger(__name__)
-
-DEFAULT_LOG_DIR = "session_logs"
-# Model bez --gguf: katalog `models/` obok tego pliku, więc `python3 main.py` działa z dowolnego
-# katalogu. Ten plik ma pierwszeństwo, gdy w katalogu leży kilka modeli.
+# Model bez --gguf: katalog `models/` obok tego pliku (ten plik ma pierwszeństwo).
 MODELS_DIR = Path(__file__).resolve().parent / "models"
 DEFAULT_GGUF = "google_gemma-4-E4B-it-Q4_K_M.gguf"
+
+WINDOW_W = 1280  # okno 16:9, nie większe niż ~90% ekranu
+FPS = 90
 TEXT_PANEL_H = 60
-# Boks staje się wybieralny dopiero po tym czasie na ekranie: inaczej coś, co pojawiło się
-# pod widokiem, zostałoby wybrane bez decyzji użytkownika.
+WORD_BAR_H = LETTER_BAR_H = 70
+WORD_DWELL_MS = 700.0
+LETTER_DWELL_MS = 1050.0  # litery wolniej: mniej przypadkowych liter
+HOVER_SCALE = 1.2         # powiększenie elementu paska pod kursorem
+CROSS_X = 0.2             # celownik jako ułamek szerokości pasma (klasyczny Dasher)
+VIGNETTE = 0.6            # siła winiety przy pełnej prędkości
+GRID_SPACING = 80         # stała siatka odniesienia [px]
+# Boks zaczyna się w 1 − (h/H)**γ drogi celownik..prawy brzeg (1 = czysty Dasher).
+TREE_EXPANSION = 0.35
+# Czułość myszy z pola 1..10: speed_scale = krok · poziom (poziom 4 = 0.6).
+SENSITIVITY_STEP = 0.15
+SENSITIVITY_DEFAULT = 4
+
+# Boks jest wybieralny dopiero po tym czasie na ekranie: inaczej coś, co pojawiło się pod
+# widokiem, zostałoby wybrane bez decyzji użytkownika.
 BOX_SELECTABLE_S = 0.2
 BOX_FADE_S = 0.12
-# Wybrany boks staje się korzeniem w tym samym miejscu; przez ten czas przechodzi z koloru
-# fokusu do koloru ścieżki, zamiast zmienić go skokowo.
-ROOT_SETTLE_S = 0.3
+ROOT_SETTLE_S = 0.3  # przejście koloru wybranego boksu w kolor korzenia
 FLASH_S = 0.15
 # Promień celownika; ramiona sięgają 2·CROSS_R. Etykieta korzenia zaczyna się za nimi.
 CROSS_R = 18
 CROSS_CLEAR_PX = 2 * CROSS_R + 4
 COLUMN_GAP_PX = 4
 RIGHT_MARGIN_PX = 8
-SHARES_MARGIN_PX = 58
-
-
-@dataclass
-class Config:
-    gguf: str = ""
-    n_gpu_layers: int = -1
-    # Beam search paska słów.
-    n_suggestions: int = 5
-    beam_width: int = 5
-    top_k: int = 16
-    top_p: float = 1.0
-    # Do modelu idzie tylko ogon tekstu.
-    max_prefix_chars: int = 1000
-    # Okno 16:9; wysokość wynika z szerokości. Domyślnie 1280x720 (< 1920x1080).
-    width: int = 1280
-    # --- UX: redukcja cybersickness. Wszystko poniżej da się zmienić na żywo
-    # w oknie ustawień (F2). ---
-    # Motyw kolorystyczny: klucz z THEMES.
-    theme: str = "calm"
-    # Winieta: siła przy pełnej prędkości, 0 = wyłączona. Przy postoju jej nie ma.
-    vignette: float = 0.6
-    # Stała siatka odniesienia: odstęp w px (0 = bez siatki).
-    grid_spacing: int = 80
-    # Pozioma pozycja celownika jako ułamek szerokości płótna. 0.2 = klasyczny
-    # Dasher; bliżej środka = krótsza droga oko–sugestie, ale szybszy zoom.
-    cross_x: float = 0.2
-    # Fizyka liczona w czasie, nie w klatkach, więc FPS nie zmienia prędkości.
-    fps: int = 90
-    # Stała czasowa wygładzania sterowania [s]. 0 = bez wygładzania.
-    smoothing: float = 0.15
-    # Sufit prędkości jako ułamek maksimum (1.0 = bez limitu).
-    max_speed: float = 0.8
-    # Globalny mnożnik tempa pasma: skaluje naraz zoom (lewo–prawo) i przesuw góra/dół.
-    speed_scale: float = 0.6
-    # Wzmocnienie zoomu: na klatkę bazową 1/60 s zakres dzieli się przez
-    # 1 + zoom_gain·speed_scale·dx. Dawniej zaszyte 0.08; 0.06 okazało się za wolne.
-    # Przy 0.10 jeden token (zakres 1 → 0.25) zajmuje ~0.76 s przy wychyleniu 75%.
-    zoom_gain: float = 0.10
-    # Wzmocnienie przesuwu góra/dół: ułamek zakresu widoku na klatkę bazową przy pełnym dy,
-    # razy speed_scale. Dawniej zaszyte 0.06 (za szybko). Przy 0.03 przesunięcie o jeden
-    # boks d1 (1/4 pasma) zajmuje ~0.8 s przy wychyleniu 50%.
-    shift_gain: float = 0.03
-    # Krzywa odpowiedzi w poziomie: dx = wychylenie ** speed_exponent (1 = liniowo).
-    # Małe wychylenia dają bardzo wolny ruch, pełną prędkość dopiero duże.
-    speed_exponent: float = 1.5
-    # Martwa strefa wokół celownika [px]: w środku widok stoi i nic się nie wybiera; poza
-    # nią wychylenie liczone od krawędzi strefy. UI nie skaluje się z oknem (czcionki,
-    # paski i celownik mają stałe px), więc strefa też nie. 0 = brak strefy.
-    deadzone_px: float = 40.0
-    show_deadzone: bool = True
-    # --- Paski dwell ---
-    # Osobno dla słów i liter; kółko-timer napełnia się przez czas danego paska.
-    word_dwell_ms: float = 700.0
-    # Litery wolniej (×1.5 względem dawnych wspólnych 700 ms): mniej przypadkowych liter.
-    letter_dwell_ms: float = 1050.0
-    dwell_cooldown_ms: float = 300.0
-    dwell_leave_grace_ms: float = 100.0
-    hover_scale: float = 1.2
-    word_bar_h: int = 70
-    letter_bar_h: int = 70
-    # --- Drzewo tokenów ---
-    # Szerokości poziomów to top-k; `tree_top_p` ucina, gdy model jest pewny; limit trzeciej
-    # kolumny: więcej tokenów nie da się ogarnąć w trakcie pisania.
-    tree_widths: tuple[int, ...] = (4, 2, 2)
-    tree_top_p: float = 0.9
-    tree_max_leaves: int = 8
-    # Ekspansja drzewa: boks zaczyna się w 1 − (h/H)**γ drogi celownik..prawy brzeg (h = jego
-    # wysokość na ekranie), więc pod celownikiem rośnie wzwyż i wszerz i przykrywa celownik
-    # w chwili wyboru. 1 = czysty Dasher (szerokość ∝ wysokość). 0.35: w spoczynku (4, 2, 2)
-    # kolumny ~136/107 px i liście ~390 px przy oknie 1280; boks przy wyborze ~220 px.
-    tree_expansion: float = 0.35
-    show_shares: bool = False
-    # Cofnięcie do początku słowa (Gaines & Vertanen 2025, `word_backoff.py`) dla liter z paska:
-    # bez niego „bar” to token `▁bar` i model proponuje „barwnie” zamiast „bardzo”.
-    gv_backoff: bool = True
-    # --- Cofanie: pełne lewo oddala o 60·ln(1/(1 − 0.6·zoom_gain·speed_scale)) w log(zakres)
-    # na sekundę: przy domyślnych 2.20 /s, od postoju 1 → 2.5 w ~0.57 s podglądu
-    # (zoom_gain 0.06: 0.84 s; dawne 0.08 bez speed_scale: ~0.46 s). ---
-    undo_zoom: float = 2.5
-    undo_min_interval: float = 0.5
-    # --- Wejście kursora do pasma ---
-    steer_grace: float = 0.15
-    steer_arm_speed: float = 600.0
-    # --- Backend testowy i dziennik ---
-    fake_model: bool = False
-    fake_latency_ms: float = 150.0
-    log_dir: str | None = None
-    verbose: bool = False
-
-
-# "classic" = dotychczasowy wygląd. "calm" = stonowana, ciemna paleta: stara
-# paleta (sześć nasyconych kolorów na zmianę) przy przewijaniu dawała kontrastowe,
-# migające pasy, czyli mocny bodziec ruchu w peryferiach. W "calm" sąsiednie
-# kafelki różnią się lekko: litery idą płynnym gradientem, jasność skacze o kilka %.
-THEMES = {
-    "calm": {
-        "bg_top": "#22252D", "bg_bottom": "#15171C",
-        "entry_bg": "#22252D", "entry_fg": "#E6E6E6",
-        "divider": "#2E323B", "outline": "#14161A", "text": "#E8E8E8", "ai": "#3F5A7A",
-        "letters": ("#4E6E5D", "#5E5470"), "special": "#3A3F4A",
-        "grid": "#4A4F5A", "border": "#2E323B", "cross": "#D9826A", "cross_halo": "#15171C",
-        "tree": ("#3F5A7A", "#38506C", "#32475F"),
-        "focus": "#3E8E5A", "focus_glow": "#2F6B47", "path": "#2F5A44",
-        "seg_letter": "#2F333C", "seg_token": "#2A3B50", "seg_word": "#2A4238", "seg_alt": 1.18,
-        "delete": "#8A2F2F", "ghost": "#D98A8A",
-        "word_dim": "#9FB0C3", "slot_empty": "#1D2026", "bar_bg": "#191B20",
-    },
-    "classic": {
-        "bg_top": "#FFFFFF", "bg_bottom": "#FFFFFF",
-        "entry_bg": "#FFFFFF", "entry_fg": "#000000",
-        "divider": "#DDDDDD", "outline": "#666666", "text": "#000000", "ai": "#D1E8FF",
-        "letters": ("#FFD700", "#ADFF2F", "#00FFFF", "#FF69B4", "#FFA500", "#1E90FF"),
-        "special": None,
-        "grid": "#666666", "border": "#444444", "cross": "#FF0000", "cross_halo": "#FFFFFF",
-        "tree": ("#D1E8FF", "#DEEEFF", "#EBF4FF"),
-        "focus": "#6FCF87", "focus_glow": "#BFECCB", "path": "#CDEFD6",
-        "seg_letter": "#F1F1F1", "seg_token": "#DCE9F7", "seg_word": "#DDF3DD", "seg_alt": 0.92,
-        "delete": "#F3A6A6", "ghost": "#C05050",
-        "word_dim": "#6E7F90", "slot_empty": "#F4F4F4", "bar_bg": "#FFFFFF",
-    },
-}
-
-# Winieta jest liczona w niskiej rozdzielczości i powiększana PhotoImage.zoom —
-# generowanie pełnej rozdzielczości w czystym Pythonie trwa ~1 s na poziom.
+# Winieta liczona w niskiej rozdzielczości i powiększana; poziomy siły trzymane w cache.
 VIGNETTE_SCALE = 8
-# Liczba poziomów siły; każdy obraz liczony raz (~10 ms) i trzymany w cache.
 VIGNETTE_LEVELS = 10
+
+# Stonowana, ciemna paleta: sąsiednie kafelki różnią się lekko, żeby przewijanie nie dawało
+# migających pasów w peryferiach.
+THEME = {
+    "bg_top": "#22252D", "bg_bottom": "#15171C",
+    "entry_bg": "#22252D", "entry_fg": "#E6E6E6",
+    "divider": "#2E323B", "outline": "#14161A", "text": "#E8E8E8", "ai": "#3F5A7A",
+    "letters": ("#4E6E5D", "#5E5470"), "special": "#3A3F4A",
+    "grid": "#4A4F5A", "border": "#2E323B", "cross": "#D9826A", "cross_halo": "#15171C",
+    "tree": ("#3F5A7A", "#38506C", "#32475F"),
+    "focus": "#3E8E5A", "focus_glow": "#2F6B47", "path": "#2F5A44",
+    "seg_letter": "#2F333C", "seg_token": "#2A3B50", "seg_word": "#2A4238", "seg_alt": 1.18,
+    "delete": "#8A2F2F", "ghost": "#D98A8A",
+    "word_dim": "#9FB0C3", "slot_empty": "#1D2026", "bar_bg": "#191B20",
+}
 
 
 def lerp_color(c1: str, c2: str, t: float) -> str:
@@ -217,13 +111,8 @@ def shade(c: str, f: float) -> str:
 
 
 def vignette_png(w: int, h: int, strength: float) -> bytes:
-    """Eliptyczna winieta RGBA (czarna, przezroczysta w środku) jako PNG.
-
-    Bez PIL: tkinter.PhotoImage czyta PNG z kanałem alfa i płótno go miesza,
-    a stipple (jedyna „przezroczystość” natywnych kształtów) daje szachownicę.
-    Ze wzrostem `strength` przezroczysty środek się kurczy — czyli zawęża się
-    pole widzenia (Fernandes & Feiner).
-    """
+    """Eliptyczna winieta RGBA jako PNG (tk miesza kanał alfa PNG, a stipple daje szachownicę);
+    z siłą kurczy się przezroczysty środek, czyli zawęża pole widzenia."""
     r_in = 1.0 - 0.5 * strength
     rows = []
     for y in range(h):
@@ -247,182 +136,54 @@ def vignette_png(w: int, h: int, strength: float) -> bytes:
 
 
 def round_rect(canvas: tk.Canvas, x0, y0, x1, y1, r, **kw):
-    """Zaokrąglony prostokąt jako wygładzony wielokąt (tk nie ma go wprost); promień
-    przycięty do połowy krótszego boku.
-    """
+    """Zaokrąglony prostokąt jako wygładzony wielokąt; promień przycięty do połowy boku."""
     r = min(r, (x1 - x0) / 2, (y1 - y0) / 2)
     pts = (x0 + r, y0, x1 - r, y0, x1, y0, x1, y0 + r, x1, y1 - r, x1, y1,
            x1 - r, y1, x0 + r, y1, x0, y1, x0, y1 - r, x0, y0 + r, x0, y0)
     return canvas.create_polygon(pts, smooth=True, splinesteps=6, **kw)
 
 
-def parse_widths(value: str) -> tuple[int, ...]:
-    """Szerokości drzewa z tekstu „4,2,2”: trzy liczby >= 2, z limitem równoległych
-    sekwencji modelu. ValueError przy złym formacie.
-    """
-    widths = tuple(int(part) for part in value.split(","))
-    if len(widths) != 3 or any(w < 2 for w in widths):
-        raise ValueError("oczekiwane trzy liczby >= 2, np. 4,2,2")
-    # Ostatni poziom to jedna sekwencja na liść przedostatniego; +1 na czysty prefix w seq 0.
-    if widths[0] * widths[1] + 1 > 64:
-        raise ValueError("za szerokie drzewo: limit 64 równoległych sekwencji")
-    return widths
-
-
-class SettingsWindow:
-    """Okno ustawień UX (F2). Zmiany działają od razu, na żywo.
-
-    Na czas otwarcia okna nawigacja stoi — kursor jest wtedy nad oknem ustawień,
-    a ostatnia pozycja nad płótnem dalej by przesuwała widok.
-    """
-
-    # Kolumny okna; w każdej (atrybut AIDasher, etykieta, od, do, krok).
-    COLUMNS = (
-        (  # ruch pasma
-            ("speed_scale", "Tempo całości (mnożnik)", 0.2, 1.5, 0.05),
-            ("zoom_gain", "Wzmocnienie lewo–prawo (zoom)", 0.02, 0.2, 0.005),
-            ("speed_exponent", "Krzywa lewo–prawo (wykładnik)", 1.0, 3.0, 0.1),
-            ("shift_gain", "Wzmocnienie góra–dół", 0.01, 0.12, 0.005),
-            ("max_speed", "Maksymalna prędkość", 0.2, 1.0, 0.05),
-            ("smoothing", "Wygładzanie ruchu [s]", 0.0, 0.5, 0.01),
-            ("deadzone_px", "Martwa strefa [px] (0 = brak)", 0, 120, 5),
-            ("cross_frac", "Pozycja celownika", 0.1, 0.6, 0.05),
-        ),
-        (  # wygląd, cofanie, wejście w pasmo
-            ("vignette", "Winieta (0 = brak)", 0.0, 1.0, 0.05),
-            ("grid_spacing", "Siatka odniesienia [px] (0 = brak)", 0, 200, 10),
-            ("fps", "FPS", 30, 144, 1),
-            ("undo_zoom", "Próg cofnięcia (zoom)", 1.1, 4.0, 0.1),
-            ("undo_min_interval", "Min. odstęp cofnięć [s]", 0.0, 2.0, 0.05),
-            ("steer_grace", "Karencja sterowania [s]", 0.0, 0.5, 0.01),
-            ("steer_arm_speed", "Prędkość uzbrojenia [px/s]", 100, 3000, 50),
-            ("hover_scale", "Powiększenie elementu", 1.0, 1.6, 0.05),
-        ),
-        (  # paski dwell i drzewo
-            ("word_dwell_ms", "Dwell słów [ms]", 300, 2000, 50),
-            ("letter_dwell_ms", "Dwell liter [ms]", 300, 2000, 50),
-            ("dwell_cooldown_ms", "Przerwa po wyborze [ms]", 0, 1000, 25),
-            ("dwell_leave_grace_ms", "Karencja wyjścia z elementu [ms]", 0, 400, 10),
-            ("word_bar_h", "Wysokość paska słów [px]", 40, 140, 5),
-            ("letter_bar_h", "Wysokość paska liter [px]", 40, 140, 5),
-            ("tree_top_p", "Top-p drzewa", 0.5, 1.0, 0.01),
-            ("tree_max_leaves", "Maks. tokenów w 3. kolumnie", 2, 32, 1),
-            ("tree_expansion", "Ekspansja drzewa (1 = Dasher)", 0.2, 1.0, 0.05),
-        ),
-    )
-
-    def __init__(self, app: "AIDasher") -> None:
-        """Okno ustawień (F2): suwaki z `COLUMNS`, pole szerokości drzewa i debug udziałów."""
-        self.app = app
-        self.win = tk.Toplevel(app.root)
-        self.win.title("Ustawienia")
-        self.win.resizable(False, False)
-        self.win.transient(app.root)
-        self.win.protocol("WM_DELETE_WINDOW", self.close)
-        self.win.bind("<Escape>", lambda e: self.close())
-        self.win.bind("<F2>", lambda e: self.close())
-
-        for col, sliders in enumerate(self.COLUMNS):
-            for i, (attr, label, lo, hi, step) in enumerate(sliders):
-                var = tk.DoubleVar(value=getattr(app, attr))
-                tk.Scale(self.win, label=label, from_=lo, to=hi, resolution=step,
-                         orient="horizontal", length=320, variable=var,
-                         command=lambda v, a=attr: app.set_option(a, float(v))
-                         ).grid(row=i, column=col, sticky="ew", padx=12, pady=2)
-
-        row = max(len(sliders) for sliders in self.COLUMNS)
-        tree_row = tk.Frame(self.win)
-        tree_row.grid(row=row, column=0, columnspan=3, sticky="ew", padx=12, pady=8)
-        tk.Label(tree_row, text="Szerokości drzewa:").pack(side="left")
-        self.widths_var = tk.StringVar(value=",".join(map(str, app.tree_widths)))
-        widths_entry = tk.Entry(tree_row, textvariable=self.widths_var, width=8)
-        widths_entry.pack(side="left", padx=(4, 16))
-        widths_entry.bind("<Return>", lambda e: self.apply_widths())
-        widths_entry.bind("<FocusOut>", lambda e: self.apply_widths())
-        self.shares_var = tk.BooleanVar(value=app.show_shares)
-        tk.Checkbutton(tree_row, text="Pokaż udziały boksów (debug)", variable=self.shares_var,
-                       command=lambda: app.set_option("show_shares", self.shares_var.get())
-                       ).pack(side="left")
-        self.deadzone_var = tk.BooleanVar(value=app.show_deadzone)
-        tk.Checkbutton(tree_row, text="Pokaż martwą strefę", variable=self.deadzone_var,
-                       command=lambda: app.set_option("show_deadzone", self.deadzone_var.get())
-                       ).pack(side="left", padx=(16, 0))
-
-        theme_row = tk.Frame(self.win)
-        theme_row.grid(row=row + 1, column=0, columnspan=3, sticky="ew", padx=12, pady=8)
-        tk.Label(theme_row, text="Motyw:").pack(side="left")
-        self.theme_var = tk.StringVar(value=app.theme_name)
-        for name, label in (("calm", "stonowany"), ("classic", "klasyczny")):
-            tk.Radiobutton(theme_row, text=label, value=name, variable=self.theme_var,
-                           command=lambda: app.set_option("theme_name", self.theme_var.get())
-                           ).pack(side="left")
-        tk.Button(self.win, text="Zamknij", command=self.close
-                  ).grid(row=row + 2, column=0, columnspan=3, pady=(0, 10))
-
-        app.paused = True
-
-    def apply_widths(self) -> None:
-        """Zastosuj szerokości z pola tekstowego; błędne wartości wracają do bieżących."""
-        try:
-            widths = parse_widths(self.widths_var.get())
-        except ValueError as exc:
-            logger.warning("Szerokości drzewa: %s", exc)
-            self.widths_var.set(",".join(map(str, self.app.tree_widths)))
-            return
-        if widths != self.app.tree_widths:
-            self.app.set_option("tree_widths", widths)
-
-    def close(self) -> None:
-        """Zapisz szerokości, odpauzuj pasmo i zamknij okno."""
-        self.apply_widths()
-        self.app.paused = False
-        self.app.settings_window = None
-        self.win.destroy()
-
-
 class TextPanel:
-    """Górne pasmo: tekst w segmentach + przycisk ustawień."""
+    """Górne pasmo: tekst w segmentach + pole czułości myszy."""
 
     def __init__(self, app: "AIDasher") -> None:
-        """Pasek tekstu na górze: wpisany tekst (tylko do odczytu) i przycisk ustawień."""
-        self.app = app
-        self.frame = tk.Frame(app.root, height=TEXT_PANEL_H)
+        """Wpisany tekst (tylko do odczytu) i w prawym górnym rogu pole czułości 1–10."""
+        t = THEME
+        self.frame = tk.Frame(app.root, height=TEXT_PANEL_H, bg=t["entry_bg"])
         self.frame.pack(side="top", fill="x")
         self.frame.pack_propagate(False)
 
-        self.settings_button = tk.Button(self.frame, text="⚙", font=("Arial", 18), relief="flat",
-                                         command=app.toggle_settings, takefocus=0)
-        self.settings_button.pack(side="right", fill="y")
+        level = tk.IntVar(value=SENSITIVITY_DEFAULT)
+        tk.Spinbox(
+            self.frame, from_=1, to=10, width=2, textvariable=level, state="readonly",
+            font=("Arial", 14), justify="center", takefocus=0, relief="flat",
+            readonlybackground=t["divider"], fg=t["entry_fg"], buttonbackground=t["divider"],
+            command=lambda: setattr(app, "speed_scale", SENSITIVITY_STEP * level.get()),
+        ).pack(side="right", padx=(0, 10), pady=16)
+        tk.Label(self.frame, text="czułość", font=("Arial", 10), bg=t["entry_bg"],
+                 fg=t["word_dim"]).pack(side="right", padx=(8, 4))
 
         self.text = tk.Text(self.frame, height=1, wrap="none", font=("Consolas", 20), padx=8,
                             pady=12, relief="flat", highlightthickness=0, borderwidth=0,
-                            state="disabled", takefocus=0, cursor="arrow")
+                            state="disabled", takefocus=0, cursor="arrow",
+                            bg=t["entry_bg"], fg=t["entry_fg"])
         self.text.pack(side="left", fill="both", expand=True)
-        self.text.tag_configure("pending")
-        for sequence in ("<Button-1>", "<B1-Motion>", "<Double-1>", "<Triple-1>"):
-            self.text.bind(sequence, lambda e: "break")
-
-        self._last_pending: tuple | None = None
-        self._n_ghosts = 0
-        self._last_source_alt: tuple[str, int] | None = None
-
-    def apply_theme(self, t: dict) -> None:
-        """Kolory panelu i tła segmentów (naprzemienne odcienie per źródło) z motywu `t`."""
-        self.frame.configure(bg=t["entry_bg"])
-        self.settings_button.configure(bg=t["entry_bg"], fg=t["entry_fg"],
-                                       activebackground=t["divider"], highlightthickness=0)
-        self.text.configure(bg=t["entry_bg"], fg=t["entry_fg"])
         for source in (SOURCE_LETTER, SOURCE_TOKEN, SOURCE_WORD):
             base = t[f"seg_{source}"]
             self.text.tag_configure(f"seg_{source}_0", background=base)
             self.text.tag_configure(f"seg_{source}_1", background=shade(base, t["seg_alt"]))
         self.text.tag_configure("caret", foreground=t["cross"])
-        self._last_pending = None
+        self.text.tag_configure("pending")
+        for sequence in ("<Button-1>", "<B1-Motion>", "<Double-1>", "<Triple-1>"):
+            self.text.bind(sequence, lambda e: "break")
+
+        self._last_pending: tuple | None = None
+        self._last_source_alt: tuple[str, int] | None = None
+        self.n_ghosts = 0
 
     def render(self, segments: list[Segment], ghosts: list[tuple[str, float]]) -> None:
-        """Narysuj tekst od nowa: segmenty z tłem według źródła, kursor, za nim usunięte
-        teksty (duchy). Ostatni segment dostaje tag podglądu usuwania.
-        """
+        """Narysuj tekst od nowa: segmenty z tłem według źródła, kursor, za nim usunięte teksty
+        (duchy). Ostatni segment dostaje tag podglądu usuwania."""
         t = self.text
         t.configure(state="normal")
         t.delete("1.0", "end")
@@ -439,13 +200,12 @@ class TextPanel:
         t.tag_raise("pending")
         t.configure(state="disabled")
         t.see("end-1c")
-        self._n_ghosts = len(ghosts)
+        self.n_ghosts = len(ghosts)
         self._last_pending = None
 
     def set_pending(self, intensity: float, struck: bool) -> None:
         """Podgląd usuwania ostatniego segmentu: tło przechodzi w kolor usuwania, od progu
-        przekreślenie. Bez zmian stanu nic nie przerysowuje.
-        """
+        przekreślenie; bez zmiany stanu nic nie przerysowuje."""
         state = (round(intensity, 2), struck, self._last_source_alt)
         if state == self._last_pending:
             return
@@ -453,25 +213,18 @@ class TextPanel:
         if self._last_source_alt is None or intensity <= 0.0:
             self.text.tag_configure("pending", background="", overstrike=False)
             return
-        t = self.app.theme
         source, alt = self._last_source_alt
-        base = t[f"seg_{source}"]
+        base = THEME[f"seg_{source}"]
         if alt:
-            base = shade(base, t["seg_alt"])
-        self.text.tag_configure("pending", background=lerp_color(base, t["delete"], intensity),
+            base = shade(base, THEME["seg_alt"])
+        self.text.tag_configure("pending", background=lerp_color(base, THEME["delete"], intensity),
                                 overstrike=struck)
 
     def set_ghosts(self, ghosts: list[tuple[str, float]]) -> None:
         """Przekreślone duchy za kursorem, gasnące do tła według krycia."""
-        t = self.app.theme
         for j, (_text, alpha) in enumerate(ghosts):
             self.text.tag_configure(f"ghost_{j}", overstrike=True,
-                                    foreground=lerp_color(t["entry_bg"], t["ghost"], alpha))
-
-    @property
-    def n_ghosts(self) -> int:
-        """Liczba duchów narysowanych przez ostatnie `render`."""
-        return self._n_ghosts
+                                    foreground=lerp_color(THEME["entry_bg"], THEME["ghost"], alpha))
 
 
 class BarView:
@@ -479,26 +232,22 @@ class BarView:
 
     def __init__(self, app: "AIDasher", height: int, n_slots: int, source: str, font_px: int,
                  dwell_ms: float) -> None:
-        """Pasek dwell (słowa albo litery) jako osobne płótno z `n_slots` stałymi slotami;
-        `source` trafia do historii i dziennika przy wyborze.
-        """
+        """Pasek (słowa albo litery) jako osobne płótno z `n_slots` stałymi slotami."""
         self.app = app
         self.source = source
         self.n_slots = n_slots
         self.font_px = font_px
-        self.canvas = tk.Canvas(app.root, height=height, highlightthickness=0)
+        self.canvas = tk.Canvas(app.root, height=height, highlightthickness=0, bg=THEME["bar_bg"])
         self.items: list[BarItem] = []
-        self.tracker = DwellTracker(dwell_ms, app.dwell_cooldown_ms, app.dwell_leave_grace_ms)
+        self.tracker = DwellTracker(dwell_ms)
         self.pointer_x: float | None = None
-        self.width, self.height = app.cfg.width, height
+        self.width, self.height = WINDOW_W, height
         self.flash: dict[int, float] = {}
         self.dirty = True
-        self._hover_label = ""
         self.canvas.bind("<Motion>", lambda e: setattr(self, "pointer_x", e.x))
         self.canvas.bind("<Enter>", lambda e: setattr(self, "pointer_x", e.x))
         self.canvas.bind("<Leave>", lambda e: setattr(self, "pointer_x", None))
         self.canvas.bind("<Configure>", self._on_configure)
-        self.canvas.bind("<Button-3>", lambda e: app.undo_last(force=True))
 
     def _on_configure(self, event) -> None:
         """Nowy rozmiar płótna: zapamiętaj go i przerysuj sloty."""
@@ -512,66 +261,52 @@ class BarView:
             self.dirty = True
 
     def step(self, now: float) -> None:
-        """Jedna klatka: element pod kursorem idzie do automatu dwell; wybór wstawia element,
-        przerwanie trafia do dziennika.
-        """
+        """Jedna klatka: element pod kursorem idzie do automatu dwell; wybór wstawia element."""
         index = None
-        if self.pointer_x is not None and not self.app.paused and self.items:
-            index = item_at(self.pointer_x, self.n_slots, self.width, self.tracker.item,
-                            self.app.hover_scale)
+        if self.pointer_x is not None and self.items:
+            index = item_at(self.pointer_x, self.n_slots, self.width, self.tracker.item, HOVER_SCALE)
             if index is not None and index >= len(self.items):
                 index = None
         item = self.items[index] if index is not None else None
-        if item is not None:
-            self._hover_label = item.dim_prefix + item.label
-        event = self.tracker.update(index, item.key if item else None)
-        if event is None:
-            return
-        if event.kind == EVENT_CANCEL:
-            self.app.log.dwell_cancel(self._hover_label, event.elapsed_ms)
-        elif event.kind == EVENT_FIRE and item is not None:
-            self.flash[event.item] = now
-            self.app.select_from_bar(item, self.source, event.elapsed_ms, now)
+        fired = self.tracker.update(index, item.key if item else None)
+        if fired is not None and item is not None:
+            self.flash[fired] = now
+            self.app.select_from_bar(item, self.source, now)
 
     def _fill(self, index: int, item: BarItem | None) -> str:
         """Kolor slotu: pusty, litera (gradient alfabetu) albo sugestia AI."""
-        t = self.app.theme
         if item is None:
-            return t["slot_empty"]
+            return THEME["slot_empty"]
         if self.source == SOURCE_LETTER:
-            return self.app.letter_color(index, item.insert)
-        return t["ai"]
+            return letter_color(index, item.insert)
+        return THEME["ai"]
 
     def _rest_pad(self) -> float:
-        """Pionowy margines slotu w spoczynku (miejsce na powiększenie pod kursorem)."""
-        # Spoczynkowa wysokość zostawia miejsce na powiększenie — powiększony element ma
-        # zmieścić się w swoim płótnie, bez zasłaniania pasma środkowego.
-        return (self.height - self.height / self.app.hover_scale) / 2
+        """Pionowy margines slotu w spoczynku: miejsce na powiększenie pod kursorem."""
+        return (self.height - self.height / HOVER_SCALE) / 2
 
     def _label(self, item: BarItem, cx: float, cy: float, max_w: float, px: int, tag: str) -> None:
         """Etykieta wyśrodkowana w slocie: przygaszony wpisany początek słowa + dokończenie;
-        za długa jest skracana z „…”.
-        """
-        t, app = self.app.theme, self.app
+        za długa jest skracana z „…”."""
+        app = self.app
         font = app.font(px)
         whole = item.dim_prefix + item.label
         if app.measure(whole, px) > max_w:
             self.canvas.create_text(cx, cy, text=app.fit_label(whole, px, max_w), font=font,
-                                    fill=t["text"], tags=tag)
+                                    fill=THEME["text"], tags=tag)
             return
         w_dim = app.measure(item.dim_prefix, px) if item.dim_prefix else 0
         x = cx - (w_dim + app.measure(item.label, px)) / 2
         if item.dim_prefix:
             self.canvas.create_text(x, cy, text=item.dim_prefix, anchor="w", font=font,
-                                    fill=t["word_dim"], tags=tag)
+                                    fill=THEME["word_dim"], tags=tag)
         self.canvas.create_text(x + w_dim, cy, text=item.label, anchor="w", font=font,
-                                fill=t["text"], tags=tag)
+                                fill=THEME["text"], tags=tag)
 
     def redraw_static(self) -> None:
-        """Narysuj od nowa tło i wszystkie sloty w spoczynku."""
+        """Narysuj od nowa wszystkie sloty w spoczynku."""
         c = self.canvas
         c.delete("all")
-        c.configure(bg=self.app.theme["bar_bg"])
         pad = self._rest_pad()
         for i in range(self.n_slots):
             a, b = item_span(i, self.n_slots, self.width)
@@ -583,15 +318,12 @@ class BarView:
         self.dirty = False
 
     def draw(self, now: float) -> None:
-        """Warstwa dynamiczna: błysk po wyborze i powiększony element pod kursorem
-        (skala rośnie z czasem najechania).
-        """
+        """Warstwa dynamiczna: błysk po wyborze, powiększony element pod kursorem i pierścień dwell."""
         if self.dirty:
             self.redraw_static()
-        c, t = self.canvas, self.app.theme
+        c = self.canvas
         c.delete("hover")
-        s_max = self.app.hover_scale
-        rest_h = self.height / s_max
+        rest_h = self.height / HOVER_SCALE
         for index, born in list(self.flash.items()):
             age = (now - born) / FLASH_S
             if age >= 1.0:
@@ -601,21 +333,21 @@ class BarView:
             item = self.items[index] if index < len(self.items) else None
             pad = self._rest_pad()
             round_rect(c, a + 1, pad, b - 1, self.height - pad, 6, outline="", tags="hover",
-                       fill=lerp_color(t["cross"], self._fill(index, item), age))
+                       fill=lerp_color(THEME["cross"], self._fill(index, item), age))
 
         index = self.tracker.item
         if index is None or index >= len(self.items):
             return
         item = self.items[index]
-        scale = 1.0 + (s_max - 1.0) * self.tracker.hover_t()
+        scale = 1.0 + (HOVER_SCALE - 1.0) * self.tracker.hover_t()
         a, b = item_span(index, self.n_slots, self.width)
         cx, cy = (a + b) / 2, self.height / 2
         half_w, half_h = (b - a) / 2 * scale, rest_h / 2 * scale
         fill = self._fill(index, item)
         if index in self.flash:
-            fill = lerp_color(t["cross"], fill, (now - self.flash[index]) / FLASH_S)
+            fill = lerp_color(THEME["cross"], fill, (now - self.flash[index]) / FLASH_S)
         round_rect(c, cx - half_w, cy - half_h, cx + half_w, cy + half_h, 7, fill=fill,
-                   outline=t["outline"], width=1, tags="hover")
+                   outline=THEME["outline"], width=1, tags="hover")
         self._label(item, cx, cy, half_w * 2 - 6, round(self.font_px * scale), "hover")
 
         progress = self.tracker.progress()
@@ -628,143 +360,97 @@ class BarView:
         else:
             r, rx = min(half_w, half_h) - 3, cx
         c.create_arc(rx - r, cy - r, rx + r, cy + r, start=90, extent=-359.9 * progress,
-                     style="arc", outline=t["cross"], width=3, tags="hover")
+                     style="arc", outline=THEME["cross"], width=3, tags="hover")
+
+
+def letter_color(i: int, char: str) -> str:
+    """Kolor slotu litery: gradient po alfabecie (znaki specjalne osobno) z lekkim naprzemiennym
+    rozjaśnieniem sąsiadów."""
+    f = 1.06 if i % 2 else 0.94
+    if not char.isalpha():
+        return shade(THEME["special"], f)
+    return shade(lerp_color(*THEME["letters"], LETTERS.index(char) / (len(LETTERS) - 1)), f)
 
 
 class AIDasher:
-    def __init__(self, root, backend, cfg: Config):
+    def __init__(self, root, backend: BeamSearch):
         """Zbuduj okno (panel tekstu, pasek słów, pasmo, pasek liter), wątek modelu i stan;
-        uruchamia pętlę klatek.
-        """
+        uruchamia pętlę klatek."""
         self.root = root
-        self.cfg = cfg
-        self.root.title("AI Dasher")
-
-        # Parametry UX (zmieniane na żywo przez SettingsWindow / set_option).
-        self.theme_name = cfg.theme
-        self.theme = THEMES[cfg.theme]
-        self.vignette = cfg.vignette
-        self.grid_spacing = cfg.grid_spacing
-        self.cross_frac = cfg.cross_x
-        self.fps = cfg.fps
-        self.smoothing = cfg.smoothing
-        self.max_speed = cfg.max_speed
-        self.speed_scale = cfg.speed_scale
-        self.zoom_gain = cfg.zoom_gain
-        self.shift_gain = cfg.shift_gain
-        self.speed_exponent = cfg.speed_exponent
-        self.deadzone_px = cfg.deadzone_px
-        self.show_deadzone = cfg.show_deadzone
-        self.word_dwell_ms = cfg.word_dwell_ms
-        self.letter_dwell_ms = cfg.letter_dwell_ms
-        self.dwell_cooldown_ms = cfg.dwell_cooldown_ms
-        self.dwell_leave_grace_ms = cfg.dwell_leave_grace_ms
-        self.hover_scale = cfg.hover_scale
-        self.word_bar_h = cfg.word_bar_h
-        self.letter_bar_h = cfg.letter_bar_h
-        self.tree_widths = cfg.tree_widths
-        self.tree_top_p = cfg.tree_top_p
-        self.tree_max_leaves = cfg.tree_max_leaves
-        self.tree_expansion = cfg.tree_expansion
-        self.show_shares = cfg.show_shares
-        self.undo_zoom = cfg.undo_zoom
-        self.undo_min_interval = cfg.undo_min_interval
-        self.steer_grace = cfg.steer_grace
-        self.steer_arm_speed = cfg.steer_arm_speed
-
-        self.alphabet = list(LETTERS)
-        self.worker = UIWorker(backend, WorkerParams(
-            n_suggestions=cfg.n_suggestions,
-            beam_width=cfg.beam_width, top_k=cfg.top_k, top_p=cfg.top_p,
-            max_prefix_chars=cfg.max_prefix_chars,
-            backoff=cfg.gv_backoff,
-        ))
-        self.log = SessionLog(cfg.log_dir)
+        root.title("AI Dasher")
+        self.worker = UIWorker(backend)
+        self.speed_scale = SENSITIVITY_STEP * SENSITIVITY_DEFAULT
 
         # Stan tekstu i drzewa. `version` rośnie z każdą zmianą tekstu; wynik dla innej
         # wersji jest odrzucany w UIWorker.poll.
         self.version = 0
-        self.history = History(cfg.undo_min_interval)
+        self.history = History()
         self.typed_text = ""
-        # Kontekst modelu, do którego dopisują się tokeny korzenia drzewa. Zwykle tokeny całego
-        # tekstu; po cofnięciu do początku słowa (`root_healed`) — tokeny SPRZED bieżącego słowa,
-        # a wpisana część siedzi w tokenach boksów. None = tekst z paska, tokenizacja od nowa.
+        # Kontekst modelu, do którego dopisują się tokeny korzenia drzewa: tokeny całego tekstu,
+        # a po cofnięciu do początku słowa (`root_healed`) tokeny SPRZED bieżącego słowa.
+        # None = tekst z paska, tokenizacja od nowa.
         self.prefix_ids: list[int] | None = None
         self.root_healed = False
         self.tree_root = EMPTY_ROOT
         self.tree_done = False
         self.boxes = []
-        self.born: dict[tuple[int, ...], float] = {}
-        self.focus_paths: set[tuple[int, ...]] = set()
-        self.focus_d1: tuple[int, ...] | None = None
+        self.born: dict = {}
+        self.focus_paths: set = set()
+        self.focus_d1 = None
         self.suggestions: tuple = ()
         self.words_ready = False
         self.pending_style = PendingStyle()
         self.ghosts = GhostTrail()
         self.text_dirty = True
-        self.last_select_t = time.perf_counter()
-        # Chwila, w której korzeń został wybrany w paśmie (-inf: korzeń z paska lub cofnięcia).
+        # Chwila wyboru korzenia w paśmie (-inf: korzeń z paska lub cofnięcia).
         self.root_since = -math.inf
 
         # Sterowanie.
         self.view = View()
         self.view_ease: ViewEase | None = None
         self.steering = Steering()
-        self.gate = SteerGate(cfg.steer_grace, cfg.steer_arm_speed)
+        self.gate = SteerGate()
         self.pointer_in_band = False
         self.pointer_in_deadzone = False
-        self.last_t = time.perf_counter()
-        self.frame_t = self.last_t
+        self.last_t = self.frame_t = time.perf_counter()
         self.vignette_cache: dict[int, tk.PhotoImage] = {}
-        self.paused = False
-        self.settings_window: SettingsWindow | None = None
         self._fonts: dict[int, tkfont.Font] = {}
         self._measures: dict[tuple[str, int], int] = {}
         self._static_dirty = True
-        self._shut_down = False
 
-        # UI — okno 16:9, nie większe niż ~90% ekranu.
-        win_w = min(cfg.width, int(root.winfo_screenwidth() * 0.9),
+        win_w = min(WINDOW_W, int(root.winfo_screenwidth() * 0.9),
                     int(root.winfo_screenheight() * 0.9 * 16 / 9))
         win_h = win_w * 9 // 16
         root.geometry(f"{win_w}x{win_h}")
 
         self.panel = TextPanel(self)
-        self.word_bar = BarView(self, cfg.word_bar_h, cfg.n_suggestions, SOURCE_WORD, 18,
-                                cfg.word_dwell_ms)
+        self.word_bar = BarView(self, WORD_BAR_H, N_SUGGESTIONS, SOURCE_WORD, 18, WORD_DWELL_MS)
         self.word_bar.canvas.pack(side="top", fill="x")
         letters = letter_items()
-        self.letter_bar = BarView(self, cfg.letter_bar_h, len(letters), SOURCE_LETTER, 20,
-                                  cfg.letter_dwell_ms)
+        self.letter_bar = BarView(self, LETTER_BAR_H, len(letters), SOURCE_LETTER, 20, LETTER_DWELL_MS)
         self.letter_bar.canvas.pack(side="bottom", fill="x")
         self.letter_bar.set_items(letters)
 
-        self.canvas = tk.Canvas(root, highlightthickness=0)
+        self.canvas = tk.Canvas(root, highlightthickness=0, bg=THEME["bg_bottom"])
         self.canvas.pack(side="top", fill="both", expand=True)
-        self.set_canvas_size(win_w, win_h - TEXT_PANEL_H - cfg.word_bar_h - cfg.letter_bar_h)
+        self.set_canvas_size(win_w, win_h - TEXT_PANEL_H - WORD_BAR_H - LETTER_BAR_H)
         self.canvas.bind("<Configure>", lambda e: self.set_canvas_size(e.width, e.height))
 
         self.mouse_x, self.mouse_y = self.cross_x, self.mid_y
         self.canvas.bind("<Motion>", self.save_mouse)
         self.canvas.bind("<Enter>", self.save_mouse)
         self.canvas.bind("<Leave>", self.leave_band)
-        # Debugowe cofnięcie ostatniego wyboru, bez limitu częstości.
-        root.bind("<BackSpace>", lambda e: self.undo_last(force=True))
-        self.canvas.bind("<Button-3>", lambda e: self.undo_last(force=True))
-        root.bind("<F2>", lambda e: self.toggle_settings())
         root.protocol("WM_DELETE_WINDOW", self.on_close)
 
-        self.apply_theme()
         self.request_missing()
         self.run()
 
-    # -- rozmiar, opcje, motyw ------------------------------------------------------
+    # -- rozmiar, kursor, czcionki ----------------------------------------------------
 
     def set_canvas_size(self, w, h):
         """Nowy rozmiar pasma: przelicz pozycję celownika i przerysuj tło."""
         self.canvas_w, self.canvas_h = max(w, 100), max(h, 100)
-        # Lewa część płótna (na lewo od krzyżyka) = strefa cofania.
-        self.cross_x = self.canvas_w * self.cross_frac
+        self.cross_x = self.canvas_w * CROSS_X  # na lewo od celownika: strefa cofania
         self.mid_y = self.canvas_h / 2
         self.vignette_cache = {}
         self._static_dirty = True
@@ -778,89 +464,20 @@ class AIDasher:
         """Kursor opuścił pasmo: przestaje sterować."""
         self.pointer_in_band = False
 
-    def toggle_settings(self):
-        """Otwórz albo zamknij okno ustawień (F2)."""
-        if self.settings_window is None:
-            self.settings_window = SettingsWindow(self)
-        else:
-            self.settings_window.close()
-
-    def set_option(self, name: str, value) -> None:
-        """Zmień ustawienie `name` na żywo (z okna F2) i odśwież to, co od niego zależy."""
-        if name in ("grid_spacing", "fps", "word_bar_h", "letter_bar_h", "tree_max_leaves"):
-            value = int(value)
-        setattr(self, name, value)
-        if name == "cross_frac":
-            self.set_canvas_size(self.canvas_w, self.canvas_h)
-        elif name in ("grid_spacing", "deadzone_px", "show_deadzone"):
-            self._static_dirty = True
-        elif name == "theme_name":
-            self.theme = THEMES[value]
-            self.apply_theme()
-        elif name == "word_dwell_ms":
-            self.word_bar.tracker.dwell_ms = value
-        elif name == "letter_dwell_ms":
-            self.letter_bar.tracker.dwell_ms = value
-        elif name == "dwell_cooldown_ms":
-            self.word_bar.tracker.cooldown_ms = self.letter_bar.tracker.cooldown_ms = value
-        elif name == "dwell_leave_grace_ms":
-            self.word_bar.tracker.leave_grace_ms = self.letter_bar.tracker.leave_grace_ms = value
-        elif name == "hover_scale":
-            self.word_bar.dirty = self.letter_bar.dirty = True
-        elif name == "word_bar_h":
-            self.word_bar.canvas.configure(height=value)
-        elif name == "letter_bar_h":
-            self.letter_bar.canvas.configure(height=value)
-        elif name == "undo_min_interval":
-            self.history.min_interval = value
-        elif name == "steer_grace":
-            self.gate.grace = value
-        elif name == "steer_arm_speed":
-            self.gate.arm_speed = value
-        elif name in ("tree_widths", "tree_top_p", "tree_max_leaves"):
-            self.restart_tree()
-
-    def apply_theme(self):
-        """Zastosuj bieżący motyw do pasma, panelu i pasków."""
-        t = self.theme
-        self.canvas.configure(bg=t["bg_bottom"])
-        self.panel.apply_theme(t)
-        self.word_bar.dirty = self.letter_bar.dirty = True
-        self._static_dirty = True
-        self.text_dirty = True
-
-    def letter_color(self, i: int, char: str) -> str:
-        """Kolor slotu litery `char` na pozycji `i`: paleta cykliczna (classic) albo gradient
-        po alfabecie z lekkim naprzemiennym rozjaśnieniem (calm).
-        """
-        t = self.theme
-        if t["special"] is None:  # classic: cykliczna paleta
-            return t["letters"][i % len(t["letters"])]
-        if not char.isalpha():
-            return shade(t["special"], 1.06 if i % 2 else 0.94)
-        pos = self.alphabet.index(char) / max(1, len(self.alphabet) - 1)
-        return shade(lerp_color(*t["letters"], pos), 1.06 if i % 2 else 0.94)
-
-    # -- czcionki ------------------------------------------------------------------------
-
     def font(self, px: int) -> tkfont.Font:
         """Pogrubiona czcionka o wysokości `px` pikseli (cache)."""
-        font = self._fonts.get(px)
-        if font is None:
-            font = tkfont.Font(root=self.root, family="Arial", size=-px, weight="bold")
-            self._fonts[px] = font
-        return font
+        if px not in self._fonts:
+            self._fonts[px] = tkfont.Font(root=self.root, family="Arial", size=-px, weight="bold")
+        return self._fonts[px]
 
     def measure(self, text: str, px: int) -> int:
         """Szerokość tekstu w px dla czcionki `px` (cache, czyszczony powyżej 5000 wpisów)."""
         key = (text, px)
-        width = self._measures.get(key)
-        if width is None:
+        if key not in self._measures:
             if len(self._measures) > 5000:
                 self._measures.clear()
-            width = self.font(px).measure(text)
-            self._measures[key] = width
-        return width
+            self._measures[key] = self.font(px).measure(text)
+        return self._measures[key]
 
     def fit_label(self, text: str, px: int, max_w: float) -> str:
         """Tekst przycięty z „…” do szerokości `max_w`; pusty, gdy nic się nie zmieści."""
@@ -873,9 +490,8 @@ class AIDasher:
     # -- zmiany stanu ---------------------------------------------------------------------
 
     def request_missing(self) -> None:
-        """Zleć workerowi to, czego brakuje dla bieżącej wersji tekstu (drzewo, sugestie),
-        albo anuluj liczenie, gdy wszystko jest gotowe.
-        """
+        """Zleć workerowi brakujące drzewo i sugestie dla bieżącej wersji tekstu albo anuluj
+        liczenie, gdy wszystko jest gotowe."""
         need_tree, need_words = not self.tree_done, not self.words_ready
         if not need_tree and not need_words:
             self.worker.cancel(self.version)
@@ -883,22 +499,14 @@ class AIDasher:
         # Po cofnięciu `prefix_ids` nie opisuje całego tekstu: worker cofa się jeszcze raz.
         known = self.prefix_ids is not None and not self.root_healed
         self.worker.request(Request(
-            version=self.version,
-            text=self.typed_text,
+            version=self.version, text=self.typed_text,
             token_ids=tuple(self.prefix_ids) if known else None,
-            root=self.tree_root,
-            need_tree=need_tree,
-            need_words=need_words,
-            widths=self.tree_widths,
-            top_p=self.tree_top_p,
-            max_leaves=self.tree_max_leaves,
-            requested_at=time.perf_counter(),
+            root=self.tree_root, need_tree=need_tree, need_words=need_words,
         ))
 
     def text_changed(self) -> None:
         """Tekst się zmienił: nowa wersja (stare wyniki przepadają), przerysowanie panelu
-        i żądanie nowych wyników.
-        """
+        i żądanie nowych wyników."""
         self.version += 1
         self.typed_text = self.history.text
         self.text_dirty = True
@@ -912,9 +520,8 @@ class AIDasher:
         self.word_bar.set_items(items)
 
     def set_tree(self, root, now: float) -> None:
-        """Ustaw drzewo i jego boksy. Nowe boksy dostają czas narodzin `now`; boks sklejony
-        z łańcucha przejmuje czas boksu, z którego powstał.
-        """
+        """Ustaw drzewo i jego boksy; boks sklejony z łańcucha przejmuje czas narodzin boksu,
+        z którego powstał."""
         self.tree_root = root
         self.boxes = layout(root)
         for box in self.boxes:
@@ -922,83 +529,54 @@ class AIDasher:
                 origin = chain_origin(box.path, self.born)
                 self.born[box.path] = self.born[origin] if origin is not None else now
 
-    def restart_tree(self) -> None:
-        """Nowe szerokości poziomów: drzewo liczone od zera dla tego samego tekstu."""
-        now = time.perf_counter()
-        self.born = {}
-        self.set_tree(EMPTY_ROOT, now)
-        self.tree_done = False
-        self.view_ease = ViewEase(self.view, now)
-        self.version += 1
-        self.refresh_word_items()
-        self.request_missing()
-
     def snapshot(self, segment: Segment, low: float | None = None, high: float | None = None) -> HistoryEntry:
-        """Wpis historii: segment + stan sprzed jego wstawienia (tokeny, drzewo, sugestie);
-        `low`/`high` = granice wybranego boksu, None dla wyboru z paska.
-        """
+        """Wpis historii: segment + stan sprzed jego wstawienia; `low`/`high` = granice
+        wybranego boksu (None dla wyboru z paska)."""
         return HistoryEntry(
             segment=segment,
             token_ids=tuple(self.prefix_ids) if self.prefix_ids is not None else None,
-            root=self.tree_root,
-            suggestions=self.suggestions,
-            words_ready=self.words_ready,
-            el_low=low,
-            el_high=high,
-            tree_done=self.tree_done,
-            healed=self.root_healed,
+            root=self.tree_root, suggestions=self.suggestions, words_ready=self.words_ready,
+            el_low=low, el_high=high, tree_done=self.tree_done, healed=self.root_healed,
         )
 
     def select_box(self, box, now: float) -> None:
         """Wejście w boks: poddrzewo staje się drzewem, a boksy zostają tam, gdzie były."""
         inserted = insert_text(self.typed_text, box.node.text)
-        self.log.select(SOURCE_TOKEN, inserted, steer_ms=(now - self.last_select_t) * 1000.0,
-                        tree_d1_width=len(self.tree_root.children))
         self.history.push(self.snapshot(Segment(inserted, SOURCE_TOKEN), box.low, box.high))
         self.ghosts.clear()
         self.view.low, self.view.high = reroot_view(self.view.low, self.view.high, box)
         self.born = rebase_born(self.born, box.node.key)
-        # Tokeny boksu: jeden, sklejony łańcuch albo (po cofnięciu) wpisana część słowa
-        # + wystający token. Po dopisaniu `prefix_ids` znów opisuje cały tekst.
+        # Po dopisaniu tokenów boksu `prefix_ids` znów opisuje cały tekst.
         self.prefix_ids = (self.prefix_ids or []) + list(box.node.tokens)
         self.root_healed = False
         self.set_tree(box.node, now)
         self.root_since = now
         self.tree_done = False
-        # Stare sugestie dotyczą poprzedniego prefiksu — wybranie którejś dopisałoby
-        # dokończenie innego słowa. Czyścimy do czasu wyniku.
+        # Stare sugestie dotyczą poprzedniego prefiksu: czyścimy do czasu wyniku.
         self.suggestions, self.words_ready = (), False
-        self.last_select_t = now
         self.text_changed()
 
-    def select_from_bar(self, item: BarItem, source: str, dwell_ms: float, now: float) -> None:
-        """Wstaw element paska (litera albo słowo): drzewo liczone od nowa, tekst tokenizowany
-        od nowa, widok wraca na całe pasmo.
-        """
-        self.log.select(source, item.insert, dwell_ms=dwell_ms,
-                        tree_d1_width=len(self.tree_root.children))
+    def select_from_bar(self, item: BarItem, source: str, now: float) -> None:
+        """Wstaw element paska (litera albo słowo): drzewo i tokenizacja od nowa, widok wraca
+        na całe pasmo."""
         self.history.push(self.snapshot(Segment(item.insert, source)))
         self.ghosts.clear()
         self.born = {}
         self.set_tree(EMPTY_ROOT, now)
         self.tree_done = False
-        self.prefix_ids = None  # tekst z paska: tokenizacja od nowa
+        self.prefix_ids = None
         self.root_healed = False
         self.suggestions, self.words_ready = (), False
         self.view_ease = ViewEase(self.view, now)
         self.steering.stop()
-        self.last_select_t = now
         self.text_changed()
 
-    def undo_last(self, force: bool = False, now: float | None = None) -> None:
-        """Cofnij ostatni segment. Widok po wyborze w paśmie ustawia się tuż NA ZEWNĄTRZ
-        cofniętego elementu — przywrócenie widoku z chwili wyboru (który leżał wewnątrz
-        elementu) sprawiałoby, że check_selection od razu wstawiłby go ponownie."""
-        entry = self.history.undo(force)
+    def undo_last(self, now: float) -> None:
+        """Cofnij ostatni segment. Widok ustawia się tuż NA ZEWNĄTRZ cofniętego boksu: widok
+        z chwili wyboru leżał w nim, więc `check_selection` wstawiłby go od razu ponownie."""
+        entry = self.history.undo()
         if entry is None:
             return
-        now = time.perf_counter() if now is None else now
-        self.log.delete(entry.segment.source, entry.segment.text)
         self.ghosts.add(entry.segment.text, now)
         self.prefix_ids = list(entry.token_ids) if entry.token_ids is not None else None
         self.root_healed = entry.healed
@@ -1013,7 +591,6 @@ class AIDasher:
             self.view_ease = None
             pad = (entry.el_high - entry.el_low) * 0.15
             self.view.low, self.view.high = entry.el_low - pad, entry.el_high + pad
-        self.last_select_t = now
         self.text_changed()
 
     def apply_tree(self, msg: TreeReady, now: float) -> None:
@@ -1023,58 +600,44 @@ class AIDasher:
         self.root_healed = msg.healed
         self.set_tree(msg.root, now)
         self.tree_done = msg.final
-        self.log.tree_ready(msg.latency_ms, msg.stage, tree_shape(msg.root))
-        # Użytkownik wyprzedził model i widok stoi głęboko w pustym paśmie: nowe boksy
-        # pojawiłyby się pod nim i po chwili wybrały same.
+        # Widok stoi głęboko w pustym paśmie: nowe boksy pojawiłyby się pod nim i wybrały same.
         if was_empty and self.view.range < 1.0:
             self.view_ease = ViewEase(self.view, now)
 
     def apply_words(self, msg: WordsReady) -> None:
         """Przyjmij sugestie słów od workera i pokaż je w pasku."""
         self.suggestions, self.words_ready = msg.suggestions, True
-        self.log.suggestions_ready(msg.latency_ms)
         self.refresh_word_items()
 
     # -- fizyka ------------------------------------------------------------------------
 
     def update_physics(self, now: float) -> None:
         """Jedna klatka sterowania: bramka wejścia, martwa strefa, powrót widoku albo krok
-        fizyki; oddalenie za próg cofa ostatni segment, wejście w boks go wybiera.
-        """
+        fizyki; oddalenie za próg cofa ostatni segment, wejście w boks go wybiera."""
         dt = now - self.last_t
         self.last_t = now
-        if self.paused:
-            self.steering.stop()
-            return
         armed = self.gate.update(self.pointer_in_band, self.mouse_x, self.mouse_y, now)
         self.set_in_deadzone(self.pointer_in_band and in_deadzone(
-            self.mouse_x, self.mouse_y, self.cross_x, self.mid_y, self.deadzone_px))
+            self.mouse_x, self.mouse_y, self.cross_x, self.mid_y))
         if self.view_ease is not None:
             if self.view_ease.apply(self.view, now):
                 self.view_ease = None
             return
         target = None
         if armed:
-            target = steering_target(self.mouse_x, self.mouse_y, self.cross_x,
-                                     self.canvas_w, self.canvas_h,
-                                     self.deadzone_px, self.speed_exponent)
+            target = steering_target(self.mouse_x, self.mouse_y, self.cross_x, self.canvas_w, self.canvas_h)
         wants_undo = self.steering.step(
-            self.view, target, dt, self.smoothing, self.max_speed,
-            speed_scale=self.speed_scale,
-            zoom_gain=self.zoom_gain,
-            shift_gain=self.shift_gain,
+            self.view, target, dt, self.speed_scale,
             hold=self.pointer_in_deadzone,
             can_zoom_in=bool(self.tree_root.children),
             has_history=bool(self.history),
-            undo_zoom=self.undo_zoom,
             can_undo=self.history.can_undo(),
             spring_back=not self.pointer_in_band,
         )
         if wants_undo:
-            self.undo_last(now=now)
+            self.undo_last(now)
             return
-        # Martwa strefa = namysł: widok stoi, ale boks mógłby i tak „dojrzeć” pod widokiem
-        # (BOX_SELECTABLE_S, nowe drzewo z workera). Nic się wtedy nie wpisuje.
+        # Martwa strefa = namysł: boks mógłby „dojrzeć” pod widokiem, ale nic się nie wpisuje.
         if not self.pointer_in_deadzone:
             self.check_selection(now)
 
@@ -1087,21 +650,16 @@ class AIDasher:
 
     def deadzone_color(self) -> str:
         """Kolor obrysu martwej strefy: akcent, gdy kursor jest w środku."""
-        t = self.theme
-        return t["cross"] if self.pointer_in_deadzone else t["grid"]
+        return THEME["cross"] if self.pointer_in_deadzone else THEME["grid"]
 
     def check_selection(self, now: float) -> None:
-        """Wybierz boks pierwszej kolumny, gdy widok w całości mieści się w nim (zoom do wnętrza),
-        o ile boks jest na ekranie co najmniej `BOX_SELECTABLE_S`.
-        """
-        # Widok w pełnym paśmie nigdy nie jest „wejściem w boks”, nawet gdy po filtrze
-        # zostało jedyne dziecko o rozpiętości 1 — inaczej wybierałoby się samo.
+        """Wybierz boks pierwszej kolumny, gdy widok w całości mieści się w nim i boks jest
+        na ekranie co najmniej `BOX_SELECTABLE_S`."""
+        # Widok w pełnym paśmie nigdy nie jest wejściem w boks (jedyne dziecko korzenia).
         if self.view.range >= 1.0:
             return
         for box in self.boxes:
-            if box.depth != 1:
-                continue
-            if self.view.low >= box.low and self.view.high <= box.high:
+            if box.depth == 1 and self.view.low >= box.low and self.view.high <= box.high:
                 if now - self.born.get(box.path, now) >= BOX_SELECTABLE_S:
                     self.select_box(box, now)
                 return
@@ -1113,14 +671,10 @@ class AIDasher:
         self.focus_d1 = path[0].path if path else None
 
     def update_text_panel(self, now: float, dt: float) -> None:
-        """Panel tekstu w klatce: podgląd usuwania według postępu oddalania, duchy, przerysowanie
-        po zmianie tekstu.
-        """
-        # W trakcie powrotu widoku zakres dalej jest duży, ale dotyczy już cofniętego
-        # segmentu; podgląd nie może zapalić się na następnym.
-        progress = 0.0
-        if self.history and self.view_ease is None and not self.paused:
-            progress = undo_progress(self.view.range, self.undo_zoom)
+        """Panel tekstu w klatce: podgląd usuwania według postępu oddalania, duchy,
+        przerysowanie po zmianie tekstu."""
+        # W trakcie powrotu widoku zakres dotyczy już cofniętego segmentu, nie następnego.
+        progress = undo_progress(self.view.range) if self.history and self.view_ease is None else 0.0
         self.pending_style.update(progress, dt)
         ghosts = self.ghosts.active(now)
         if self.text_dirty or len(ghosts) != self.panel.n_ghosts:
@@ -1133,54 +687,47 @@ class AIDasher:
 
     def draw_static(self) -> None:
         """Tło i układ odniesienia: stoją w miejscu, więc rysowane raz, nie co klatkę."""
-        c, t = self.canvas, self.theme
+        c, t = self.canvas, THEME
         c.delete("all")
-        # Tło: statyczny pionowy gradient (nie przewija się z kafelkami).
-        if t["bg_top"] != t["bg_bottom"]:
-            bands = 24
-            band_h = self.canvas_h / bands
-            for i in range(bands):
-                c.create_rectangle(0, i * band_h, self.canvas_w, (i + 1) * band_h + 1, outline="",
-                                   fill=lerp_color(t["bg_top"], t["bg_bottom"], i / (bands - 1)),
-                                   tags="bg")
+        bands = 24  # statyczny pionowy gradient tła
+        band_h = self.canvas_h / bands
+        for i in range(bands):
+            c.create_rectangle(0, i * band_h, self.canvas_w, (i + 1) * band_h + 1, outline="",
+                               fill=lerp_color(t["bg_top"], t["bg_bottom"], i / (bands - 1)), tags="bg")
         c.create_line(self.cross_x, 0, self.cross_x, self.canvas_h, fill=t["divider"], tags="bg")
         self.draw_rest_frame()
         self._static_dirty = False
 
     def box_rect(self, left: float, right: float, low: float, high: float):
-        """Prostokąt boksu na płótnie: (x0, x1, y0, y1, wysokość) albo None, gdy niewidoczny.
-
-        `left`/`right` to ułamki drogi celownik..prawy brzeg, `low`/`high` układ korzenia.
-        """
+        """Prostokąt boksu na płótnie (x0, x1, y0, y1, wysokość) albo None, gdy niewidoczny;
+        `left`/`right` to ułamki drogi celownik..prawy brzeg, `low`/`high` układ korzenia."""
         view_range = self.view.range
         y_top = (low - self.view.low) / view_range * self.canvas_h
         y_bot = (high - self.view.low) / view_range * self.canvas_h
         if y_bot < -20 or y_top > self.canvas_h + 20 or y_bot - y_top < 1:
             return None
         span_w = self.canvas_w - self.cross_x
-        right_limit = self.canvas_w - (SHARES_MARGIN_PX if self.show_shares else RIGHT_MARGIN_PX)
         x0 = self.cross_x + left * span_w
-        x1 = min(self.cross_x + right * span_w - COLUMN_GAP_PX, right_limit)
+        x1 = min(self.cross_x + right * span_w - COLUMN_GAP_PX, self.canvas_w - RIGHT_MARGIN_PX)
         if x1 - x0 < 2:
             return None
         # Przycięcie do okolic płótna: po dużym zoomie współrzędne szłyby w tysiące.
         return x0, x1, max(y_top + 1, -20.0), min(y_bot - 1, self.canvas_h + 20.0), y_bot - y_top
 
     def draw_root(self, now: float) -> None:
-        """Korzeń = ostatni wybrany token, jak bieżący boks w Dasherze: od celownika do swoich
-        dzieci. Wybrany boks zostaje więc tam, gdzie był, zamiast zniknąć w chwili wyboru."""
-        root, t = self.tree_root, self.theme
+        """Korzeń = ostatni wybrany token, od celownika do swoich dzieci: wybrany boks zostaje
+        tam, gdzie był, zamiast zniknąć w chwili wyboru."""
+        root = self.tree_root
         if not root.text:  # pusty korzeń: początek tekstu albo tekst z paska
             return
-        left, right = root_x(root, self.view.range, self.tree_expansion)
+        left, right = root_x(root, self.view.range, TREE_EXPANSION)
         rect = self.box_rect(left, right, 0.0, 1.0)
         if rect is None:
             return
         x0, x1, y0, y1, h = rect
-        fill = lerp_color(t["focus"], t["path"], min(1.0, (now - self.root_since) / ROOT_SETTLE_S))
+        fill = lerp_color(THEME["focus"], THEME["path"], min(1.0, (now - self.root_since) / ROOT_SETTLE_S))
         round_rect(self.canvas, x0, y0, x1, y1, 8, fill=fill, outline="", tags="dyn")
-        # Korzeń zaczyna się na celowniku: etykieta tylko w części za jego ramionami, i tylko
-        # w całości — zwężający się korzeń z samym „-…” nic by nie mówił.
+        # Etykieta tylko za ramionami celownika i tylko w całości.
         label_x0 = max(x0, self.cross_x + CROSS_CLEAR_PX)
         px = min(22, int(h * 0.55))
         starts_word, label = token_label(root.text)
@@ -1189,83 +736,60 @@ class AIDasher:
             self.draw_box_label(root, label_x0, x1, (y0 + y1) / 2, px, fill, 1.0)
 
     def draw_tree(self, now: float) -> None:
-        """Narysuj korzeń i boksy drzewa: kolory poziomów, fokus z poświatą, wygaszanie
-        nowych boksów, etykiety i (debug) udziały.
-        """
-        c, t = self.canvas, self.theme
-        view_range = self.view.range
+        """Narysuj korzeń i boksy drzewa: kolory poziomów, fokus z poświatą, wygaszanie nowych
+        boksów i etykiety."""
+        c, t = self.canvas, THEME
         bg = t["bg_bottom"]
-
         self.draw_root(now)
         for box in self.boxes:
-            left, right = box_x(box, view_range, self.tree_expansion)
+            left, right = box_x(box, self.view.range, TREE_EXPANSION)
             rect = self.box_rect(left, right, box.low, box.high)
             if rect is None:
                 continue
             x0, x1, y0, y1, h = rect
-
             fill = t["tree"][box.depth - 1]
-            focused = box.path in self.focus_paths
-            if focused:
+            if box.path in self.focus_paths:
                 fill = t["focus"] if box.path == self.focus_d1 else t["path"]
             fade = min(1.0, (now - self.born.get(box.path, now)) / BOX_FADE_S)
-            shown = fill if fade >= 1.0 else lerp_color(bg, fill, fade)
-
             if box.path == self.focus_d1 and fade >= 1.0:
                 for grow, mix in ((6, 0.75), (3, 0.4)):
                     round_rect(c, x0 - grow, y0 - grow, x1 + grow, y1 + grow, 10 + grow,
                                outline="", fill=lerp_color(t["focus_glow"], bg, mix), tags="dyn")
-            round_rect(c, x0, y0, x1, y1, 8, fill=shown, outline="", tags="dyn")
-
+            round_rect(c, x0, y0, x1, y1, 8, outline="", tags="dyn",
+                       fill=fill if fade >= 1.0 else lerp_color(bg, fill, fade))
             px = min(22, int(h * 0.55))
             if px >= 8 and x1 - x0 > 14:
                 self.draw_box_label(box.node, x0, x1, (y0 + y1) / 2, px, fill, fade)
-            if self.show_shares:
-                self.draw_share(box, x1, (y0 + y1) / 2)
 
     def draw_box_label(self, node, x0, x1, cy, px, fill, fade) -> None:
         """Etykieta boksu wyśrodkowana: „-reszta” dla dokończenia słowa, a dla nowego słowa
-        przygaszony znacznik ␣ przed tekstem.
-        """
-        c, t = self.canvas, self.theme
+        przygaszony znacznik ␣ przed tekstem."""
+        c = self.canvas
         starts_word, label = token_label(node.text)
         marker_w = self.measure("␣", px) if starts_word else 0
         label = self.fit_label(label, px, x1 - x0 - 10 - marker_w)
         if not label:
             return
-        color = t["text"] if fade >= 1.0 else lerp_color(fill, t["text"], fade)
+        color = THEME["text"] if fade >= 1.0 else lerp_color(fill, THEME["text"], fade)
         cx = (x0 + x1) / 2
         c.create_text(cx, cy, text=label, font=self.font(px), fill=color, tags="dyn")
         if starts_word:
-            # Znacznik spacji przygaszony i poza środkiem: etykieta zostaje wycentrowana.
-            mx = cx - self.measure(label, px) / 2 - 2
-            c.create_text(mx, cy, text="␣", anchor="e", font=self.font(px),
-                          fill=lerp_color(fill, t["text"], 0.45 * fade), tags="dyn")
-
-    def draw_share(self, box, x1, cy) -> None:
-        """Debug: wysokość boksu w układzie korzenia przy jego prawej krawędzi."""
-        share = f"{box.span:.4f}".rstrip("0").rstrip(".")
-        color = self.theme["word_dim"]
-        if box.depth == 3:
-            self.canvas.create_text(self.canvas_w - 4, cy, text=share, anchor="e", fill=color,
-                                    font=self.font(11), tags="dyn")
-        else:
-            self.canvas.create_text(x1 - 4, cy, text=share, anchor="e", fill=color,
-                                    font=self.font(10), tags="dyn")
+            # Znacznik przygaszony i poza środkiem: etykieta zostaje wycentrowana.
+            c.create_text(cx - self.measure(label, px) / 2 - 2, cy, text="␣", anchor="e",
+                          font=self.font(px), fill=lerp_color(fill, THEME["text"], 0.45 * fade), tags="dyn")
 
     def draw_scene(self, now: float) -> None:
         """Klatka pasma: tło (tylko po zmianie), drzewo, winieta, ramka na wierzchu."""
-        c = self.canvas
         if self._static_dirty:
             self.draw_static()
-        c.delete("dyn")
+        self.canvas.delete("dyn")
         self.draw_tree(now)
         self.draw_vignette()
-        c.tag_raise("frame")
+        self.canvas.tag_raise("frame")
 
     def draw_vignette(self):
         """Przyciemnia brzegi płótna proporcjonalnie do prędkości (brak przy postoju)."""
-        level = round(self.steering.speed * self.vignette * VIGNETTE_LEVELS)
+        level = round(self.steering.speed * VIGNETTE * VIGNETTE_LEVELS)
         if level <= 0:
             return
         img = self.vignette_cache.get(level)
@@ -1278,37 +802,23 @@ class AIDasher:
         self.canvas.create_image(0, 0, image=img, anchor="nw", tags="dyn")
 
     def draw_rest_frame(self):
-        """Stały układ odniesienia rysowany NA kafelkach i winiecie (Cao i in. 2018).
-
-        Kafelki płyną, a siatka, obrys i celownik stoją w miejscu — oko ma się
-        czego „trzymać”. Siatka jest kropkowana, żeby nie zasłaniała liter
-        (stipple gubi 1-pikselowe linie pionowe, dash nie).
-        """
-        t = self.theme
-        c = self.canvas
+        """Stały układ odniesienia NA kafelkach i winiecie: kafelki płyną, a siatka, obrys,
+        martwa strefa i celownik stoją, więc oko ma się czego trzymać."""
+        t, c = THEME, self.canvas
         w, h = self.canvas_w, self.canvas_h
-        step = self.grid_spacing
-        if step > 0:
-            # Siatka zakotwiczona w celowniku, żeby jedna linia szła przez jego środek.
-            x = self.cross_x % step
-            while x < w:
-                c.create_line(x, 0, x, h, fill=t["grid"], dash=(1, 3), tags="frame")
-                x += step
-            y = self.mid_y % step
-            while y < h:
-                c.create_line(0, y, w, y, fill=t["grid"], dash=(1, 3), tags="frame")
-                y += step
-
-        # Obrys przestrzeni roboczej.
+        # Siatka kropkowana (stipple gubi 1-pikselowe linie), zakotwiczona w celowniku.
+        x = self.cross_x % GRID_SPACING
+        while x < w:
+            c.create_line(x, 0, x, h, fill=t["grid"], dash=(1, 3), tags="frame")
+            x += GRID_SPACING
+        y = self.mid_y % GRID_SPACING
+        while y < h:
+            c.create_line(0, y, w, y, fill=t["grid"], dash=(1, 3), tags="frame")
+            y += GRID_SPACING
         c.create_rectangle(3, 3, w - 3, h - 3, outline=t["border"], width=6, tags="frame")
-
-        # Martwa strefa: delikatny przerywany okrąg, w kolorze celownika, gdy kursor w środku.
-        cx, cy = self.cross_x, self.mid_y
-        if self.show_deadzone and self.deadzone_px > 0:
-            dz = self.deadzone_px
-            c.create_oval(cx - dz, cy - dz, cx + dz, cy + dz, outline=self.deadzone_color(),
-                          width=1, dash=(2, 4), tags=("frame", "deadzone"))
-
+        cx, cy, dz = self.cross_x, self.mid_y, DEADZONE_PX
+        c.create_oval(cx - dz, cy - dz, cx + dz, cy + dz, outline=self.deadzone_color(),
+                      width=1, dash=(2, 4), tags=("frame", "deadzone"))
         # Celownik z obwódką: widać go na każdym kolorze kafelka.
         r = CROSS_R
         arms = ((cx - 2 * r, cy, cx - 6, cy), (cx + 6, cy, cx + 2 * r, cy),
@@ -1321,9 +831,7 @@ class AIDasher:
     # -- pętla ------------------------------------------------------------------------------
 
     def run(self):
-        """Pętla klatek: wyniki workera, paski, fizyka, fokus, panel i rysowanie; następna
-        klatka po czasie wynikającym z `fps` minus czas tej.
-        """
+        """Pętla klatek: wyniki workera, paski, fizyka, fokus, panel i rysowanie."""
         start = time.perf_counter()
         dt = start - self.frame_t
         self.frame_t = start
@@ -1340,204 +848,44 @@ class AIDasher:
         self.draw_scene(start)
         self.word_bar.draw(start)
         self.letter_bar.draw(start)
-        # Tk przerysowuje płótno dopiero w stanie bezczynności. Gdy klatka trwa
-        # dłużej niż okres, timer jest wiecznie zaległy i bezczynności nie ma —
-        # płótno przestaje się odświeżać. Dlatego wymuszamy rysunek tutaj.
+        # Tk rysuje płótno dopiero w bezczynności, której przy długiej klatce nie ma.
         self.root.update_idletasks()
-        # Czas klatki odejmujemy od okresu — stałe after(16) dawało realnie
-        # ~50 FPS zamiast 60. Minimum 2 ms zostawia pętli czas na zdarzenia.
+        # Czas klatki odejmujemy od okresu; minimum 2 ms zostawia pętli czas na zdarzenia.
         spent_ms = (time.perf_counter() - start) * 1000
-        self.root.after(max(2, round(1000 / self.fps - spent_ms)), self.run)
-
-    def shutdown(self) -> None:
-        """Zamknij dziennik i wątek modelu, zaloguj statystyki opóźnień (raz)."""
-        if self._shut_down:
-            return
-        self._shut_down = True
-        self.log.close(len(self.typed_text))
-        self.worker.close()
-        summary = self.worker.stats.summary()
-        if summary:
-            logger.info("Latencja etapów [ms]: %s", summary)
+        self.root.after(max(2, round(1000 / FPS - spent_ms)), self.run)
 
     def on_close(self) -> None:
-        """Zamknięcie okna: sprzątanie i zniszczenie okna tk."""
-        self.shutdown()
+        """Zamknięcie okna: zatrzymaj wątek modelu i zniszcz okno."""
+        self.worker.close()
         self.root.destroy()
 
 
-def default_gguf() -> tuple[str | None, list[Path]]:
-    """Model, gdy nie podano --gguf: zmienna DASHER_GGUF, potem `models/DEFAULT_GGUF`, potem
-    jedyny plik .gguf w `models/`. Zwraca (ścieżka albo None, znalezione pliki .gguf)."""
-    env = os.environ.get("DASHER_GGUF")
-    if env:
-        return env, []
-    found = sorted(MODELS_DIR.glob("*.gguf")) if MODELS_DIR.is_dir() else []
-    preferred = MODELS_DIR / DEFAULT_GGUF
-    if preferred.is_file():
-        return str(preferred), found
-    return (str(found[0]) if len(found) == 1 else None), found
-
-
-def parse_args() -> Config:
-    """Konfiguracja z linii poleceń (wartości domyślne z `Config`) z kontrolą zakresów."""
-    defaults = Config()
-    p = argparse.ArgumentParser(description="AI Dasher — UI z paskami dwell i drzewem tokenów.")
-    p.add_argument("--gguf", default=None,
-                   help=f"ścieżka do modelu .gguf (domyślnie zmienna DASHER_GGUF, a bez niej "
-                        f"{MODELS_DIR.name}/{DEFAULT_GGUF} albo jedyny .gguf w {MODELS_DIR})")
-    p.add_argument("--n-gpu-layers", type=int, default=defaults.n_gpu_layers)
-    p.add_argument("--n-suggestions", type=int, default=defaults.n_suggestions)
-    p.add_argument("--beam-width", type=int, default=defaults.beam_width)
-    p.add_argument("--top-k", type=int, default=defaults.top_k)
-    p.add_argument("--top-p", type=float, default=defaults.top_p)
-    p.add_argument("--max-prefix-chars", type=int, default=defaults.max_prefix_chars)
-    p.add_argument("--width", type=int, default=defaults.width,
-                   help="szerokość okna 16:9 (wysokość = width*9/16), < 1920")
-    p.add_argument("--theme", choices=sorted(THEMES), default=defaults.theme,
-                   help="motyw kolorystyczny (calm = stonowany, classic = dotychczasowy)")
-    p.add_argument("--vignette", type=float, default=defaults.vignette,
-                   help="siła winiety przy pełnej prędkości, 0..1 (0 = wyłączona)")
-    p.add_argument("--grid-spacing", type=int, default=defaults.grid_spacing,
-                   help="odstęp stałej siatki odniesienia w px (0 = bez siatki)")
-    p.add_argument("--cross-x", type=float, default=defaults.cross_x,
-                   help="pozycja celownika jako ułamek szerokości (0.2 = klasyczny Dasher)")
-    p.add_argument("--fps", type=int, default=defaults.fps,
-                   help="docelowa liczba klatek na sekundę (prędkość ruchu od niej nie zależy)")
-    p.add_argument("--smoothing", type=float, default=defaults.smoothing,
-                   help="stała czasowa wygładzania sterowania w sekundach (0 = brak)")
-    p.add_argument("--max-speed", type=float, default=defaults.max_speed,
-                   help="sufit prędkości jako ułamek maksimum, (0, 1] (1 = bez limitu)")
-    p.add_argument("--speed-scale", type=float, default=defaults.speed_scale,
-                   help="globalny mnożnik tempa pasma (zoom i przesuw góra/dół), (0, 2]")
-    p.add_argument("--zoom-gain", type=float, default=defaults.zoom_gain,
-                   help="wzmocnienie zoomu (lewo–prawo) na klatkę bazową 1/60 s, (0, 0.3]")
-    p.add_argument("--shift-gain", type=float, default=defaults.shift_gain,
-                   help="wzmocnienie przesuwu góra/dół na klatkę bazową 1/60 s, (0, 0.3]")
-    p.add_argument("--speed-exponent", type=float, default=defaults.speed_exponent,
-                   help="krzywa odpowiedzi w poziomie: dx = wychylenie**wykładnik, [1, 3]")
-    p.add_argument("--deadzone-px", type=float, default=defaults.deadzone_px,
-                   help="promień martwej strefy wokół celownika [px], 0..150 (0 = brak)")
-    p.add_argument("--hide-deadzone", dest="show_deadzone", action="store_false",
-                   help="nie rysuj okręgu martwej strefy (strefa dalej działa)")
-    p.add_argument("--word-dwell-ms", type=float, default=defaults.word_dwell_ms,
-                   help="dwell paska słów [ms], 300..2000")
-    p.add_argument("--letter-dwell-ms", type=float, default=defaults.letter_dwell_ms,
-                   help="dwell paska liter [ms], 300..2000")
-    p.add_argument("--dwell-cooldown-ms", type=float, default=defaults.dwell_cooldown_ms,
-                   help="przerwa przed kolejnym cyklem na tym samym elemencie [ms]")
-    p.add_argument("--dwell-leave-grace-ms", type=float, default=defaults.dwell_leave_grace_ms,
-                   help="karencja po wyjściu z elementu, tłumi drżenie na granicy [ms]")
-    p.add_argument("--hover-scale", type=float, default=defaults.hover_scale,
-                   help="powiększenie elementu pod kursorem, >= 1")
-    p.add_argument("--word-bar-h", type=int, default=defaults.word_bar_h,
-                   help="wysokość paska słów [px]")
-    p.add_argument("--letter-bar-h", type=int, default=defaults.letter_bar_h,
-                   help="wysokość paska liter [px]")
-    p.add_argument("--tree-widths", type=parse_widths, default=defaults.tree_widths,
-                   help="szerokości trzech poziomów drzewa, np. 4,2,2")
-    p.add_argument("--tree-top-p", type=float, default=defaults.tree_top_p,
-                   help="drzewo: ucinaj rodzeństwo, gdy pokazane tokeny zebrały tę masę, (0, 1]")
-    p.add_argument("--tree-max-leaves", type=int, default=defaults.tree_max_leaves,
-                   help="drzewo: maksymalna liczba tokenów w 3. kolumnie, >= 2")
-    p.add_argument("--tree-expansion", type=float, default=defaults.tree_expansion,
-                   help="drzewo: boks zaczyna się w 1-(h/H)**γ drogi celownik..prawy brzeg; "
-                        "1 = czysty Dasher, [0.2, 1]")
-    p.add_argument("--show-shares", action="store_true",
-                   help="debug: pokaż udział każdego boksu w paśmie")
-    p.add_argument("--no-gv-backoff", dest="gv_backoff", action="store_false",
-                   help="bez cofania do początku słowa (G&V) po literach z paska — do porównań")
-    p.add_argument("--undo-zoom", type=float, default=defaults.undo_zoom,
-                   help="zakres widoku, przy którym oddalanie cofa ostatni segment, > 1")
-    p.add_argument("--undo-min-interval", type=float, default=defaults.undo_min_interval,
-                   help="minimalny odstęp między kolejnymi cofnięciami [s]")
-    p.add_argument("--steer-grace", type=float, default=defaults.steer_grace,
-                   help="ile kursor musi być w paśmie, zanim zacznie sterować [s]")
-    p.add_argument("--steer-arm-speed", type=float, default=defaults.steer_arm_speed,
-                   help="prędkość kursora [px/s], poniżej której sterowanie się włącza")
-    p.add_argument("--fake-model", action="store_true",
-                   help="deterministyczny backend bez modelu (bez GGUF i bez llama_cpp)")
-    p.add_argument("--fake-latency-ms", type=float, default=defaults.fake_latency_ms,
-                   help="opóźnienie backendu testowego na etap [ms]")
-    p.add_argument("--log-dir", nargs="?", const=DEFAULT_LOG_DIR, default=None,
-                   help=f"katalog dziennika sesji JSONL (samo --log-dir = {DEFAULT_LOG_DIR})")
-    p.add_argument("--verbose", action="store_true", help="logi debug, w tym latencja etapów")
-    args = p.parse_args()
-    if not args.fake_model:
-        if not args.gguf:
-            args.gguf, found = default_gguf()
-            if args.gguf is None:
-                what = (f"kilka modeli w {MODELS_DIR}: {', '.join(f.name for f in found)}" if found
-                        else f"brak pliku .gguf w {MODELS_DIR}")
-                p.error(f"{what} — podaj --gguf, ustaw DASHER_GGUF albo użyj --fake-model")
-        if not Path(args.gguf).is_file():
-            p.error(f"nie ma pliku modelu: {args.gguf}")
-    if not 320 <= args.width < 1920:
-        p.error("--width musi być w zakresie [320, 1920)")
-    if not 0.0 <= args.vignette <= 1.0:
-        p.error("--vignette musi być w zakresie [0, 1]")
-    if args.grid_spacing < 0:
-        p.error("--grid-spacing nie może być ujemne")
-    if not 0.1 <= args.cross_x <= 0.6:
-        p.error("--cross-x musi być w zakresie [0.1, 0.6]")
-    if not 10 <= args.fps <= 240:
-        p.error("--fps musi być w zakresie [10, 240]")
-    if not 0.0 <= args.smoothing <= 2.0:
-        p.error("--smoothing musi być w zakresie [0, 2]")
-    if not 0.0 < args.max_speed <= 1.0:
-        p.error("--max-speed musi być w zakresie (0, 1]")
-    if not 0.0 < args.speed_scale <= 2.0:
-        p.error("--speed-scale musi być w zakresie (0, 2]")
-    if not 0.0 < args.zoom_gain <= 0.3 or not 0.0 < args.shift_gain <= 0.3:
-        p.error("--zoom-gain i --shift-gain muszą być w zakresie (0, 0.3]")
-    if not 1.0 <= args.speed_exponent <= 3.0:
-        p.error("--speed-exponent musi być w zakresie [1, 3]")
-    if not 0.0 <= args.deadzone_px <= 150.0:
-        p.error("--deadzone-px musi być w zakresie [0, 150]")
-    if not 300 <= args.word_dwell_ms <= 2000 or not 300 <= args.letter_dwell_ms <= 2000:
-        p.error("--word-dwell-ms i --letter-dwell-ms muszą być w zakresie [300, 2000]")
-    if args.dwell_cooldown_ms < 0 or args.dwell_leave_grace_ms < 0:
-        p.error("--dwell-cooldown-ms i --dwell-leave-grace-ms nie mogą być ujemne")
-    if not 0.0 < args.tree_top_p <= 1.0:
-        p.error("--tree-top-p musi być w zakresie (0, 1]")
-    if args.tree_max_leaves < 2:
-        p.error("--tree-max-leaves musi być >= 2")
-    if not 0.2 <= args.tree_expansion <= 1.0:
-        p.error("--tree-expansion musi być w zakresie [0.2, 1]")
-    if args.hover_scale < 1.0:
-        p.error("--hover-scale musi być >= 1")
-    if args.word_bar_h < 20 or args.letter_bar_h < 20:
-        p.error("--word-bar-h i --letter-bar-h muszą być >= 20")
-    if args.undo_zoom <= 1.0:
-        p.error("--undo-zoom musi być > 1")
-    if args.undo_min_interval < 0 or args.steer_grace < 0 or args.steer_arm_speed <= 0:
-        p.error("--undo-min-interval i --steer-grace nie mogą być ujemne, "
-                "--steer-arm-speed musi być > 0")
-    if args.fake_latency_ms < 0:
-        p.error("--fake-latency-ms nie może być ujemne")
-    args.gguf = args.gguf or ""
-    return Config(**{f.name: getattr(args, f.name) for f in fields(Config)})
-
-
-def make_backend(cfg: Config):
-    """Backend modelu: atrapa (`--fake-model`) albo `CachedBeamSearch` z GGUF."""
-    if cfg.fake_model:
-        from fake_backend import FakeBackend
-
-        return FakeBackend(cfg.fake_latency_ms)
-    from kv_beam_search import CachedBeamSearch
-
-    return CachedBeamSearch(cfg.gguf, n_gpu_layers=cfg.n_gpu_layers)
+def model_path() -> str:
+    """Ścieżka modelu z `--gguf` albo z `models/` (DEFAULT_GGUF, inaczej jedyny .gguf)."""
+    p = argparse.ArgumentParser(description="AI Dasher — pisanie drzewem tokenów i paskami dwell.")
+    p.add_argument("--gguf", help=f"model .gguf (domyślnie {DEFAULT_GGUF} albo jedyny .gguf w {MODELS_DIR})")
+    gguf = p.parse_args().gguf
+    if not gguf:
+        found = sorted(MODELS_DIR.glob("*.gguf"))
+        if (MODELS_DIR / DEFAULT_GGUF).is_file():
+            gguf = str(MODELS_DIR / DEFAULT_GGUF)
+        elif len(found) == 1:
+            gguf = str(found[0])
+        else:
+            what = (f"kilka modeli w {MODELS_DIR}: {', '.join(f.name for f in found)}" if found
+                    else f"brak pliku .gguf w {MODELS_DIR}")
+            p.error(f"{what} — podaj --gguf")
+    if not Path(gguf).is_file():
+        p.error(f"nie ma pliku modelu: {gguf}")
+    return gguf
 
 
 if __name__ == "__main__":
-    cfg = parse_args()
-    logging.basicConfig(level=logging.DEBUG if cfg.verbose else logging.INFO,
-                        format="%(asctime)s %(levelname)s %(name)s: %(message)s")
-    backend = make_backend(cfg)
-    root = tk.Tk()
-    app = AIDasher(root, backend, cfg)
+    gguf = model_path()
+    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
+    backend = BeamSearch(gguf)  # model przed oknem: inaczej kilka sekund pustego okna
+    app = AIDasher(tk.Tk(), backend)
     try:
-        root.mainloop()
+        app.root.mainloop()
     finally:
-        app.shutdown()
+        app.worker.close()

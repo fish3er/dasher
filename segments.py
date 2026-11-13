@@ -10,8 +10,8 @@ from __future__ import annotations
 import math
 import time
 from dataclasses import dataclass, field
-from typing import Callable
 
+from steering import UNDO_ZOOM
 from token_tree import TreeNode
 
 SOURCE_LETTER = "letter"
@@ -19,6 +19,7 @@ SOURCE_TOKEN = "token"
 SOURCE_WORD = "word"
 
 GHOST_FADE_S = 0.8
+UNDO_MIN_INTERVAL = 0.5  # najkrótszy odstęp między kolejnymi cofnięciami [s]
 PENDING_FADE_S = 0.2
 STRIKE_FROM = 0.5
 
@@ -47,10 +48,8 @@ class HistoryEntry:
 
 
 class History:
-    def __init__(self, min_interval: float = 0.5, clock: Callable[[], float] = time.perf_counter) -> None:
-        """`min_interval` [s] to najkrótszy odstęp między kolejnymi cofnięciami (bez `force`)."""
-        self.min_interval = min_interval
-        self._clock = clock
+    def __init__(self) -> None:
+        """Pusta historia."""
         self.entries: list[HistoryEntry] = []
         self._last_undo: float | None = None
 
@@ -73,24 +72,24 @@ class History:
         self.entries.append(entry)
 
     def can_undo(self) -> bool:
-        """Czy cofnięcie jest możliwe: jest wpis i minął `min_interval` od poprzedniego."""
+        """Czy cofnięcie jest możliwe: jest wpis i minął `UNDO_MIN_INTERVAL` od poprzedniego."""
         if not self.entries:
             return False
-        return self._last_undo is None or self._clock() - self._last_undo >= self.min_interval
+        return self._last_undo is None or time.perf_counter() - self._last_undo >= UNDO_MIN_INTERVAL
 
-    def undo(self, force: bool = False) -> HistoryEntry | None:
-        """Zdejmij ostatni segment. `force` omija limit (debugowe cofanie klawiszem/myszą)."""
-        if not self.entries or not (force or self.can_undo()):
+    def undo(self) -> HistoryEntry | None:
+        """Zdejmij ostatni segment (None, gdy nie ma czego cofać albo za wcześnie)."""
+        if not self.can_undo():
             return None
-        self._last_undo = self._clock()
+        self._last_undo = time.perf_counter()
         return self.entries.pop()
 
 
-def undo_progress(view_range: float, undo_zoom: float) -> float:
+def undo_progress(view_range: float) -> float:
     """Postęp do progu cofnięcia 0..1, liniowo w log(zakres): ruch oddalania jest wykładniczy."""
-    if view_range <= 1.0 or undo_zoom <= 1.0:
+    if view_range <= 1.0:
         return 0.0
-    return min(1.0, math.log(view_range) / math.log(undo_zoom))
+    return min(1.0, math.log(view_range) / math.log(UNDO_ZOOM))
 
 
 class PendingStyle:

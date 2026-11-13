@@ -1,42 +1,15 @@
 """Drzewo tokenów pasma środkowego — struktura i geometria, bez tkintera i bez modelu.
 
-Prawdopodobieństwo NIE wpływa na rozmiar boksu: każde dziecko dostaje dokładnie 1/n
-wysokości rodzica (n = liczba pokazanych dzieci). Rozkład modelu decyduje tylko o tym,
-które tokeny są pokazane (top-k po filtrze) i w jakiej kolejności (od góry najbardziej
-prawdopodobny). Mierzone wcześniej mapowanie p->wysokość dawało silnie skośne kolumny.
+Każde dziecko dostaje 1/n wysokości rodzica; model decyduje tylko, które tokeny są pokazane
+(top-k, `top_p`, limit `max_leaves` trzeciej kolumny) i w jakiej kolejności. Pewne jedyne dziecko
+jest doklejane do rodzica („ę” + „tnie” = „ętnie”): rodzic z jednym dzieckiem miałby kolumnę
+szerokości 0 i na ekranie stałoby samo „-tnie”. Węzeł niesie więc ciąg tokenów (`tokens`) —
+także dokończenie słowa po cofnięciu do jego początku (`word_backoff`).
 
-Liczba boksów jest ograniczona, bo 4 + 8 + 16 to za dużo do ogarnięcia w trakcie pisania:
-szerokości poziomów to top-k, `top_p` ucina gałąź, gdy model jest już pewny, a trzecia kolumna
-ma twardy limit `max_leaves`, rozdzielany gałęziom od najbardziej prawdopodobnej.
-
-Jedno dziecko, którego model jest pewien (>= top_p), jest DOKLEJANE do rodzica: boks „ę” z jedynym
-dzieckiem „tnie” staje się jednym boksem „ętnie”, a „ przec” + „zy” + „tam” boksem „ przeczytam”.
-Rodzic z jednym dzieckiem miałby kolumnę o szerokości 0 (dziecko ma tę samą wysokość, a lewa
-krawędź zależy tylko od wysokości), więc na ekranie stałoby samo „-tnie” bez „ę”. Dlatego węzeł
-pod korzeniem ma 0 albo >= 2 dzieci. Wyjątek: jedyne dziecko KORZENIA (wpisany tekst się nie
-zmienia, więc nie ma do czego doklejać) wypełnia pasmo i wybiera się samo w locie.
-
-Węzeł niesie więc ciąg tokenów (`tokens`), nie jeden: sklejony łańcuch albo dokończenie słowa
-po cofnięciu do jego początku (G&V, patrz `word_backoff.py`) — tokeny wpisanej części słowa plus
-token, który za nią wystaje. Ścieżki w drzewie składają się z kluczy węzłów (`key` = `tokens`).
-
-`TreeNode` jest niemutowalny: dołożenie poziomu kopiuje ścieżkę, więc migawki drzewa
-w historii cofania nie zmieniają się pod spodem.
-
-Pozycja pozioma jak w Dasherze: lewa krawędź boksu to czysta funkcja JEGO wysokości h na
-ekranie (H = wysokość pasma). Odległość od prawego brzegu rośnie z wysokością:
-
-    left = 1 - (h / H) ** expansion      (0 = celownik, 1 = prawy brzeg)
-    prawa krawędź = lewa krawędź dzieci  (liść: do prawego brzegu)
-
-`expansion` = 1 to czysty Dasher (szerokość proporcjonalna do wysokości), mniejsze wartości
-spłaszczają krzywą, żeby w spoczynku trzy poziomy miały czytelne kolumny. Boks pod celownikiem
-przy zoomie robi się wyższy I szerszy, a jego lewa krawędź dojeżdża do celownika dokładnie
-wtedy, gdy boks ma wysokość pasma — w chwili wyboru przykrywa celownik. Dzieci siedzą w prawej
-części rodzica. Korzeń (ostatni wybrany token) jest rysowany jak każdy boks, od celownika do
-swoich dzieci. Ponowne zakorzenienie niczego nie przesuwa: zachowuje piksele, więc każdy boks
-ma tę samą wysokość na ekranie, czyli te same krawędzie. Dołożenie poziomu przesuwa tylko
-prawą krawędź liścia (dzieci wjeżdżają z prawej).
+Pozycja pozioma jak w Dasherze: lewa krawędź boksu zależy tylko od JEGO wysokości h na ekranie,
+`left = 1 - (h / H) ** expansion` (0 = celownik, 1 = prawy brzeg), więc boks pod celownikiem rośnie
+wzwyż i wszerz i przykrywa celownik w chwili wyboru, a ponowne zakorzenienie niczego nie przesuwa.
+`TreeNode` jest niemutowalny, więc migawki w historii cofania nie zmieniają się pod spodem.
 """
 
 from __future__ import annotations
@@ -50,9 +23,7 @@ MAX_DEPTH = 3
 DEFAULT_WIDTHS = (4, 2, 2)
 DEFAULT_TOP_P = 0.9
 DEFAULT_MAX_LEAVES = 8
-# Ile razy na poziom doklejamy pewne jedyne dziecko do rodzica. Każde doklejenie to kolejne
-# batchowane dekodowanie poziomu, więc limit trzyma latencję. Łańcuch dłuższy niż limit kończy
-# się liściem bez dzieci — krótszy boks jest lepszy niż boks bez etykiety.
+# Doklejeń jedynego dziecka na poziom (każde to jedno dekodowanie więcej); po limicie liść.
 MAX_CHAIN_MERGES = 3
 
 
@@ -172,16 +143,6 @@ def count_at_depth(root: TreeNode, depth: int) -> int:
     return sum(count_at_depth(c, depth - 1) for c in root.children)
 
 
-def tree_shape(root: TreeNode) -> tuple[int, ...]:
-    """Liczba boksów na kolejnych głębokościach (np. (4, 8, 16) albo zwężone (2, 4, 8))."""
-    shape: list[int] = []
-    level = list(root.children)
-    while level:
-        shape.append(len(level))
-        level = [c for node in level for c in node.children]
-    return tuple(shape)
-
-
 # expand(ogony, szerokość): ogon = tokeny dopisywane do kontekstu korzenia (`path_tokens`),
 # () dla samego korzenia. Wynik: dzieci każdego ogona, malejąco po prawdopodobieństwie.
 ExpandFn = Callable[[list[tuple[int, ...]], int], list[tuple[TreeNode, ...]]]
@@ -193,11 +154,8 @@ def _allocate_leaves(
     children: list[tuple[TreeNode, ...]],
     budget: int,
 ) -> list[tuple[Path, tuple[TreeNode, ...]]]:
-    """Rozdziel limit ostatniej kolumny: najpierw gałęzie o najwyższym łącznym logprobie.
-
-    Rodzic dostaje dzieci w komplecie albo wcale — obcięcie pary do jednego dziecka dałoby
-    niepewne jedyne dziecko, a ono wybierałoby się samo.
-    """
+    """Rozdziel limit ostatniej kolumny od gałęzi o najwyższym logprobie; rodzic dostaje dzieci
+    w komplecie albo wcale (obcięte do jednego wybierałoby się samo)."""
     ranked = sorted(zip(paths, children), key=lambda pc: -path_logprob(root, pc[0]))
     out = []
     for path, kids in ranked:
@@ -215,18 +173,11 @@ def grow_tree(
     max_leaves: int | None = None,
     max_merges: int = MAX_CHAIN_MERGES,
 ) -> TreeNode:
-    """Dolicz brakujące poziomy do `upto_depth`, doczepiając je wyłącznie do liści.
+    """Dolicz brakujące poziomy do `upto_depth`, jednym `expand` na poziom, tylko pod liśćmi.
 
-    `expand(ogony, szerokość)` dostaje liście jednego poziomu naraz — to jeden batch
-    na poziom. Szerokość wynika z głębokości, stąd po ponownym zakorzenieniu drzewa (4, 2, 2)
-    nowy poziom ma szerokość `widths[2]`, nie `widths[0]`. `max_leaves` ogranicza liczbę boksów
-    na głębokości `upto_depth`, łącznie z tymi, które już tam są.
-
-    Jedyne dziecko węzła pod korzeniem jest doklejane do niego (`merge_chain`), a sklejony węzeł
-    zostaje liściem na TEJ SAMEJ głębokości i jest rozwijany jeszcze raz — do `max_merges` razy
-    na poziom. Po limicie jedyne dziecko jest odrzucane: liść ma etykietę, rodzic z jednym
-    dzieckiem nie miałby jej wcale (patrz docstring modułu).
-    """
+    Szerokość poziomu wynika z głębokości, `max_leaves` ogranicza ostatnią kolumnę. Jedyne
+    dziecko węzła pod korzeniem jest doklejane (`merge_chain`), a sklejony węzeł rozwijany jeszcze
+    raz, do `max_merges` razy na poziom; po limicie jedyne dziecko jest odrzucane."""
     for depth in range(upto_depth):
         width = widths[min(depth, len(widths) - 1)]
         last = max_leaves is not None and depth == upto_depth - 1
@@ -263,14 +214,9 @@ def _foreign_script(text: str) -> bool:
 
 
 def clean_token(raw: bytes, first_after_space: bool) -> str | None:
-    """Tekst tokenu do pokazania albo None, gdy token ma nie trafić do drzewa.
-
-    Odrzucane: tokeny kontrolne i EOS (puste po detokenizacji), niepełne UTF-8, same białe
-    znaki, nowe linie, markdown modelu instrukcyjnego, wielokrotne spacje, litery spoza
-    alfabetu łacińskiego (nie do wpisania, a realnie trafiają do top-k). Pierwszy token po
-    końcowej spacji tekstu musi zaczynać nowe słowo — prefiks idzie do modelu po `rstrip`,
-    więc token bez spacji dokańczałby wyraz SPRZED kursora („domu ” + „s”).
-    """
+    """Tekst tokenu do pokazania albo None: odrzuca tokeny kontrolne, niepełne UTF-8, białe znaki,
+    markdown, litery spoza alfabetu łacińskiego oraz — tuż po spacji — tokeny bez spacji
+    (prefiks idzie do modelu po `rstrip`, więc dokańczałyby wyraz sprzed kursora)."""
     if not raw:
         return None
     try:
@@ -296,12 +242,8 @@ def pick_children(
     top_p: float = 1.0,
     min_keep: int = 1,
 ) -> tuple[TreeNode, ...]:
-    """Tokeny po filtrze, malejąco po prawdopodobieństwie, bez duplikatów.
-
-    Stop po `width` tokenach (top-k) albo gdy pokazane tokeny zebrały `top_p` masy pełnego
-    słownika, ale nie mniej niż `min_keep`. Jedyny token zostaje tylko wtedy, gdy sam niesie
-    `top_p` — niepewne jedyne dziecko wybierałoby się samo (patrz docstring modułu).
-    """
+    """Tokeny po filtrze, malejąco, bez duplikatów: najwyżej `width`, stop po zebraniu `top_p` masy
+    (nie mniej niż `min_keep`); jedyny token zostaje tylko, gdy sam niesie `top_p`."""
     ranked = sorted(candidates, key=lambda c: -c[1])
     return pick_nodes(
         (((token_id,), decode(token_id), logprob) for token_id, logprob in ranked),
@@ -316,9 +258,8 @@ def pick_nodes(
     top_p: float = 1.0,
     min_keep: int = 1,
 ) -> tuple[TreeNode, ...]:
-    """Jak `pick_children`, ale kandydaci to gotowe `(tokeny, tekst, logprob)`, JUŻ posortowani
-    malejąco — np. dokończenia słowa po cofnięciu do jego początku (tekst = część wystająca
-    za wpisane litery, tokeny = cała ścieżka)."""
+    """Jak `pick_children`, ale dla gotowych, posortowanych `(tokeny, tekst, logprob)` — np. dokończeń
+    słowa po cofnięciu do jego początku."""
     out: list[TreeNode] = []
     seen: set[str] = set()
     mass = 0.0
@@ -363,13 +304,8 @@ def layout(root: TreeNode, max_depth: int = MAX_DEPTH) -> list[Box]:
 
 
 def box_left(span: float, view_range: float, expansion: float) -> float:
-    """Lewa krawędź boksu o rozpiętości `span` jako ułamek drogi celownik..prawy brzeg.
-
-    Boks wysoki co najmniej na całe pasmo zaczyna się na celowniku (0) — to on jest
-    „pod celownikiem” również przy locie wzdłuż granicy dwóch boksów, gdy widok nie mieści
-    się w żadnym z nich i wybór jeszcze nie zaszedł. Bardzo małe boksy dążą do prawego
-    brzegu, ale go nie mijają, więc szerokie drzewo z F2 ściska liście zamiast je ucinać.
-    """
+    """Lewa krawędź boksu o rozpiętości `span` jako ułamek drogi celownik..prawy brzeg; boks
+    na całe pasmo zaczyna się na celowniku, bardzo małe dążą do prawego brzegu."""
     r = span / view_range
     if r >= 1.0:
         return 0.0
@@ -398,11 +334,7 @@ def root_x(root: TreeNode, view_range: float, expansion: float) -> tuple[float, 
 
 
 def focus_path(boxes: Iterable[Box], y: float) -> list[Box]:
-    """Boksy zawierające `y` w układzie korzenia, od głębokości 1 w dół.
-
-    Dokładnie na granicy wygrywa górny (bardziej prawdopodobny) boks — rodzeństwo jest
-    przeglądane od góry, więc wystarcza nierówność domknięta z obu stron.
-    """
+    """Boksy zawierające `y` w układzie korzenia, od głębokości 1 w dół; na granicy wygrywa górny."""
     path: list[Box] = []
     prefix: Path = ()
     boxes = list(boxes)
@@ -430,9 +362,8 @@ def rebase_born(born: dict[Path, float], key: Key) -> dict[Path, float]:
 
 
 def chain_origin(path: Path, known: Iterable[Path]) -> Path | None:
-    """Boks, z którego `path` powstał przez doklejenie łańcucha: ten sam rodzic, klucz
-    przedłużony („ę” -> „ętnie” między etapami liczenia). To ten sam boks w tym samym miejscu,
-    więc nie powinien rodzić się od nowa (wygaszanie, `BOX_SELECTABLE_S`)."""
+    """Boks, z którego `path` powstał przez doklejenie łańcucha (ten sam rodzic, przedłużony klucz),
+    albo None — taki boks nie powinien rodzić się od nowa."""
     parent, key = path[:-1], path[-1]
     best: Path | None = None
     for p in known:

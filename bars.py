@@ -1,7 +1,7 @@
 """Zawartość i geometria pasków dwell (słowa, litery), bez tkintera.
 
 Paski są statyczne: liczba slotów nie zależy od liczby sugestii, więc nic nie przeskakuje
-pod kursorem, gdy lista jest krótsza niż `n_suggestions`.
+pod kursorem, gdy sugestii jest mniej niż slotów.
 """
 
 from __future__ import annotations

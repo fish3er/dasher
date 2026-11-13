@@ -5,9 +5,6 @@ models/
 __pycache__/
 *.pyc
 
-# dzienniki sesji testów UX (--log-dir)
-session_logs/
-
 # Lokalne pliki innych branchy, zostają na dysku po przełączeniu. Repo jest publiczne,
 # a transkrypt podcastu objęty prawami autorskimi — nie mogą tu trafić przez `git add -A`.
 cache/
