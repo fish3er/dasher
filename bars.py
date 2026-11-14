@@ -11,7 +11,7 @@ from typing import Sequence
 
 from token_tree import ends_with_punct
 
-LETTERS = "aąbcćdeęfghijklłmnńoóprstuwvyzźż"
+LETTERS = "aąbcćdeęfghijklłmnńoóprsśtuwvyzźż"
 SPECIALS = (" ", ".", ",", "!", "?")
 SPACE_LABEL = "␣"
 

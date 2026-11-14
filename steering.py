@@ -11,7 +11,7 @@ import math
 from dataclasses import dataclass
 
 # Martwa strefa wokół celownika [px]: w środku widok stoi i nic się nie wybiera.
-DEADZONE_PX = 40.0
+DEADZONE_PX = 60.0
 # Krzywa pozioma dx = wychylenie ** wykładnik: małe wychylenie = bardzo wolno.
 SPEED_EXPONENT = 1.5
 # Krzywa pionowa: małe wychylenia od osi celownika dają bardzo wolny przesuw.
