@@ -1,0 +1,8 @@
+2026-11-16 07:24:08 START kolejki; perf_level=auto power1_cap=264 W
+2026-11-16 07:24:08 RUN bielik_testing (testing, Bielik-11B-v3.1-Instruct.Q5_K_M.gguf)
+2026-11-16 09:37:45 KONIEC bielik_testing rc=0
+2026-11-16 09:37:45 RUN bielik_greedy (testing_greedy, Bielik-11B-v3.1-Instruct.Q5_K_M.gguf)
+2026-11-16 12:10:39 KONIEC bielik_greedy rc=0
+2026-11-16 12:10:39 RUN gemma-4-E4B_greedy (testing_greedy, google_gemma-4-E4B-it-Q4_K_M.gguf)
+2026-11-16 13:07:26 KONIEC gemma-4-E4B_greedy rc=0
+2026-11-16 13:07:26 KONIEC kolejki

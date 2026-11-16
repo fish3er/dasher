@@ -58,6 +58,7 @@ logger = logging.getLogger("eval_context")
 SEARCH_LEGACY = "legacy"
 SEARCH_GV = "gv"
 SEARCH_TESTING = "testing"  # backend UI z brancha `testing` (kopia w backend_testing/)
+SEARCH_TESTING_GREEDY = "testing_greedy"  # to samo bez beam searcha (ablacja): zachłanne dokończenia
 
 
 def normalize_corpus_text(text: str) -> str:
@@ -454,8 +455,13 @@ def run(cfg: RunConfig, smoke: bool = False) -> Path:
                 )
                 sweep = lambda b, text, p, prm, i: sweep_position_gv(  # noqa: E731
                     b, text, p, prm, with_timing=cfg.timing_every > 0 and i % cfg.timing_every == 0)
-            elif cfg.search == SEARCH_TESTING:
-                from context_sweep import load_testing_backend, sweep_position_testing
+            elif cfg.search in (SEARCH_TESTING, SEARCH_TESTING_GREEDY):
+                from context_sweep import (
+                    greedy_suggest,
+                    load_testing_backend,
+                    sweep_position_testing,
+                    testing_suggest,
+                )
 
                 tb = load_testing_backend(cfg.n_ctx, cfg.n_batch)
                 # Backend UI ma parametry paska słów jako stałe — run musi mieć te same.
@@ -467,7 +473,8 @@ def run(cfg: RunConfig, smoke: bool = False) -> Path:
                                      f"top_p, kv_mode, prefill_reuse) = {want}, config ma {got}")
                 backend = tb.BeamSearch(str(cfg.gguf))
                 backend.vocab_index()  # indeks G&V przed pomiarem, nie w pierwszej pozycji
-                sweep = lambda b, text, p, prm, i: sweep_position_testing(tb, b, text, p, prm)  # noqa: E731
+                suggest = greedy_suggest if cfg.search == SEARCH_TESTING_GREEDY else testing_suggest
+                sweep = lambda b, text, p, prm, i: sweep_position_testing(tb, b, text, p, prm, suggest)  # noqa: E731
             else:
                 backend = CachedBeamSearch(
                     str(cfg.gguf), n_gpu_layers=cfg.n_gpu_layers, n_batch=cfg.n_batch,
@@ -544,7 +551,7 @@ def run(cfg: RunConfig, smoke: bool = False) -> Path:
                         for k, v in asdict(cfg).items()},
                        allow_unicode=True, sort_keys=True), encoding="utf-8")
     backend_info: dict = {"kv_modes": kv_modes, "smoke": smoke}
-    if cfg.search == SEARCH_TESTING:
+    if cfg.search in (SEARCH_TESTING, SEARCH_TESTING_GREEDY):
         from context_sweep import TESTING_DIR, TESTING_FILES
 
         backend_info["backend_testing_sha256"] = {
@@ -668,9 +675,12 @@ def main(argv: list[str] | None = None) -> None:
                         help="Nadpisz siatkę c_len, po przecinku (np. 0,8,64,1000)")
     parser.add_argument("--seeds", type=str, default=None,
                         help="Nadpisz listę seedów, po przecinku (np. 1,2,3)")
-    parser.add_argument("--search", choices=(SEARCH_LEGACY, SEARCH_GV, SEARCH_TESTING), default=None,
-                        help="Algorytm podpowiedzi: legacy (BeamSearch), gv (Gaines & Vertanen) "
-                             "albo testing (backend UI z brancha testing, backend_testing/)")
+    parser.add_argument("--search", choices=(SEARCH_LEGACY, SEARCH_GV, SEARCH_TESTING, SEARCH_TESTING_GREEDY),
+                        default=None,
+                        help="Algorytm podpowiedzi: legacy (BeamSearch), gv (Gaines & Vertanen), "
+                             "testing (backend UI z brancha testing, backend_testing/) albo "
+                             "testing_greedy (to samo bez beam searcha)")
+    parser.add_argument("--gguf", type=Path, default=None, help="Nadpisz model z configu")
     parser.add_argument("--gv-config", type=Path, default=None)
     parser.add_argument("--corpus-glob", default=None, help="np. podcast_clean.txt")
     parser.add_argument("--results-dir", type=Path, default=None)
@@ -703,6 +713,8 @@ def main(argv: list[str] | None = None) -> None:
         overrides["corpus_glob"] = args.corpus_glob
     if args.results_dir:
         overrides["results_dir"] = args.results_dir
+    if args.gguf:
+        overrides["gguf"] = args.gguf
 
     cfg = load_config(args.config, overrides)
     random.seed(cfg.seeds[0])

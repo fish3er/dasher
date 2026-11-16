@@ -718,11 +718,78 @@ def testing_suggest(tb, backend, text: str) -> tuple[list, bool, int]:
     return backend.suggest_tokens(ids, level), False, len(ids)
 
 
+def _greedy_complete(tb, backend, ids: list[int], level: str, starts: list, typed: str) -> list:
+    """Dokończ zachłannie każdy start `(tokeny, logprob, skip)` do końca słowa (zawsze najbardziej
+    prawdopodobny token, ten sam limit tokenów i ta sama ekstrakcja tekstu co beam search) i zwróć
+    do `N_SUGGESTIONS` sugestii w kolejności startów, bez pustych i duplikatów."""
+    prefix_text = backend._detokenize(list(ids))
+    n_prefix = len(ids)
+
+    def state(tokens: tuple[int, ...]) -> tuple[str, bool]:
+        """Tekst słowa i flaga „słowo skończone” dla ogona `tokens` (jak w `suggest_tokens`)."""
+        full = backend._detokenize(list(ids) + list(tokens))
+        text, boundary = backend._extract(level, full[len(prefix_text) + len(typed):])
+        return text, boundary or tokens[-1] == backend._eos
+
+    paths = []  # [tokeny, logprob, skip, tekst, skończone, odrzucone]
+    for tokens, lp, skip in starts:
+        text, complete = state(tuple(tokens))
+        paths.append([tuple(tokens), lp, skip, text, complete, complete and level == tb.LEVEL_MID_WORD and not text])
+    # Beam search bez seedów generuje pierwszy token z prefiksu + `_MAX_NEW_TOKENS - 1` kolejnych;
+    # z seedami G&V startuje od dokończenia i ma jeszcze `_MAX_NEW_TOKENS` kroków.
+    for _ in range(tb._MAX_NEW_TOKENS if typed else tb._MAX_NEW_TOKENS - 1):
+        active = [p for p in paths if not p[4] and not p[5]]
+        if not active:
+            break
+        for p, logits in zip(active, backend._decode_tails(n_prefix, [p[0] for p in active])):
+            tok, lp = backend._topk_logprobs(logits, 1)[0]
+            p[0], p[1] = p[0] + (tok,), p[1] + lp
+            p[3], p[4] = state(p[0])
+            p[5] = p[4] and level == tb.LEVEL_MID_WORD and not p[3]
+
+    out, seen = [], set()
+    for tokens, lp, skip, text, complete, dropped in paths:
+        text = text.strip()
+        if dropped or not text or text.lower() in seen:
+            continue
+        seen.add(text.lower())
+        out.append(tb.Suggestion(text, lp / max(1, len(tokens) - skip), level, complete))
+        if len(out) >= tb.N_SUGGESTIONS:
+            break
+    return out
+
+
+def greedy_suggest(tb, backend, text: str) -> tuple[list, bool, int]:
+    """Ablacja beam searcha: jak `testing_suggest` (G&V w środku słowa), ale bez beam searcha.
+
+    Kandydaci na pierwszy krok są ci sami co w beam searchu (`TOP_K` tokenów po prefiksie albo
+    dokończenia G&V), każdy dokończony zachłannie. Kolejność = P pierwszego kroku, więc pierwsza
+    sugestia to czysty greedy; brak ponownego rankingu po P całego słowa."""
+    if text and tb.text_level(text) == tb.LEVEL_MID_WORD:
+        heal = backend.backoff_ids(text)
+        if heal is not None:
+            ids, typed = heal
+            res = backend.backoff(ids, typed)
+            if res is not None:
+                starts = []
+                for c in res.completions[: tb._BACKOFF_SEEDS]:
+                    t, boundary = backend._extract(tb.LEVEL_MID_WORD, c.suffix)
+                    if not (boundary and not t):  # słowo już skończone: to nie dokończenie
+                        starts.append((c.tokens, c.logprob, len(c.tokens) - 1))
+                suggestions = _greedy_complete(tb, backend, ids, tb.LEVEL_MID_WORD, starts, typed)
+                if suggestions:
+                    return suggestions, True, len(ids)
+    ids, level = backend.prefix_ids(text)
+    first = backend._ensure_prefill(ids)
+    starts = [((tok,), lp, 0) for tok, lp in backend._topk_logprobs(first, tb.TOP_K)]
+    return _greedy_complete(tb, backend, ids, level, starts, ""), False, len(ids)
+
+
 def sweep_position_testing(tb, backend, doc_text: str, pos: TargetPosition,
-                           params: SweepParams) -> list[dict]:
-    """Jak `sweep_position`, ale backendem jest `BeamSearch` z brancha `testing`. Tekst wejścia
-    to ostatnie `c_len` tokenów przed słowem + `immediate_prefix` (bez `rstrip`: backend
-    sam ucina spację na granicy słowa i sam cofa się w środku słowa)."""
+                           params: SweepParams, suggest=testing_suggest) -> list[dict]:
+    """Jak `sweep_position`, ale backendem jest `BeamSearch` z brancha `testing` (`suggest` =
+    pasek słów UI albo `greedy_suggest`). Tekst wejścia to ostatnie `c_len` tokenów przed słowem
+    + `immediate_prefix` (bez `rstrip`: backend sam ucina spację i sam cofa się w środku słowa)."""
     rows: list[dict] = []
     context_text = doc_text[: pos.word_start]
     ctx_tokens = backend._llama.tokenize(
@@ -732,7 +799,7 @@ def sweep_position_testing(tb, backend, doc_text: str, pos: TargetPosition,
         kept = list(ctx_tokens[-c_len:]) if c_len > 0 else []
         text = (backend._detokenize(kept) if kept else "") + pos.immediate_prefix
         t0 = time.perf_counter()
-        suggestions, healed, n_prefix = testing_suggest(tb, backend, text)
+        suggestions, healed, n_prefix = suggest(tb, backend, text)
         latency_ms = (time.perf_counter() - t0) * 1000.0
         rows.append({
             "doc_id": pos.doc_id,

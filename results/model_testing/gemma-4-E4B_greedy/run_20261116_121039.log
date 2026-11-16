@@ -1,0 +1,148 @@
+2026-11-16 12:10:44,968 INFO eval_context: Wczytano 1 dokumentów, łącznie 52564 kandydujących pozycji targetów
+2026-11-16 12:10:44,991 INFO testing_beam_search: Ładowanie modelu GGUF: models/google_gemma-4-E4B-it-Q4_K_M.gguf
+llama_context: n_ctx_seq (16384) < n_ctx_train (131072) -- the full capacity of the model will not be utilized
+llama_kv_cache_iswa: using full-size SWA cache (ref: https://github.com/ggml-org/llama.cpp/pull/13194#issuecomment-2868343055)
+llama_kv_cache: the V embeddings have different sizes across layers and FA is not enabled - padding V cache to 1024
+llama_kv_cache: the V embeddings have different sizes across layers and FA is not enabled - padding V cache to 1024
+2026-11-16 12:11:02,645 INFO testing_beam_search: Model załadowany (n_vocab=262144, n_seq_max=64).
+2026-11-16 12:11:04,077 INFO eval_context: [testing_greedy/multi_seq] rozgrzewka gotowa
+2026-11-16 12:11:17,544 INFO eval_context: [testing_greedy/multi_seq seed=1 podcast_clean] 10/600 pozycji, 33 s
+2026-11-16 12:11:33,266 INFO eval_context: [testing_greedy/multi_seq seed=1 podcast_clean] 20/600 pozycji, 48 s
+2026-11-16 12:11:52,147 INFO eval_context: [testing_greedy/multi_seq seed=1 podcast_clean] 30/600 pozycji, 67 s
+2026-11-16 12:12:14,311 INFO eval_context: [testing_greedy/multi_seq seed=1 podcast_clean] 40/600 pozycji, 89 s
+2026-11-16 12:12:41,122 INFO eval_context: [testing_greedy/multi_seq seed=1 podcast_clean] 50/600 pozycji, 116 s
+2026-11-16 12:13:10,219 INFO eval_context: [testing_greedy/multi_seq seed=1 podcast_clean] 60/600 pozycji, 145 s
+2026-11-16 12:13:46,224 INFO eval_context: [testing_greedy/multi_seq seed=1 podcast_clean] 70/600 pozycji, 181 s
+2026-11-16 12:14:30,595 INFO eval_context: [testing_greedy/multi_seq seed=1 podcast_clean] 80/600 pozycji, 226 s
+2026-11-16 12:15:18,936 INFO eval_context: [testing_greedy/multi_seq seed=1 podcast_clean] 90/600 pozycji, 274 s
+2026-11-16 12:16:08,032 INFO eval_context: [testing_greedy/multi_seq seed=1 podcast_clean] 100/600 pozycji, 323 s
+2026-11-16 12:16:53,658 INFO eval_context: [testing_greedy/multi_seq seed=1 podcast_clean] 110/600 pozycji, 369 s
+2026-11-16 12:17:46,410 INFO eval_context: [testing_greedy/multi_seq seed=1 podcast_clean] 120/600 pozycji, 421 s
+2026-11-16 12:18:39,711 INFO eval_context: [testing_greedy/multi_seq seed=1 podcast_clean] 130/600 pozycji, 475 s
+2026-11-16 12:19:36,922 INFO eval_context: [testing_greedy/multi_seq seed=1 podcast_clean] 140/600 pozycji, 532 s
+2026-11-16 12:20:40,887 INFO eval_context: [testing_greedy/multi_seq seed=1 podcast_clean] 150/600 pozycji, 596 s
+2026-11-16 12:21:38,804 INFO eval_context: [testing_greedy/multi_seq seed=1 podcast_clean] 160/600 pozycji, 654 s
+2026-11-16 12:22:36,632 INFO eval_context: [testing_greedy/multi_seq seed=1 podcast_clean] 170/600 pozycji, 712 s
+2026-11-16 12:23:41,577 INFO eval_context: [testing_greedy/multi_seq seed=1 podcast_clean] 180/600 pozycji, 777 s
+2026-11-16 12:24:44,171 INFO eval_context: [testing_greedy/multi_seq seed=1 podcast_clean] 190/600 pozycji, 839 s
+2026-11-16 12:25:46,908 INFO eval_context: [testing_greedy/multi_seq seed=1 podcast_clean] 200/600 pozycji, 902 s
+2026-11-16 12:26:50,644 INFO eval_context: [testing_greedy/multi_seq seed=1 podcast_clean] 210/600 pozycji, 966 s
+2026-11-16 12:27:50,102 INFO eval_context: [testing_greedy/multi_seq seed=1 podcast_clean] 220/600 pozycji, 1025 s
+2026-11-16 12:28:50,962 INFO eval_context: [testing_greedy/multi_seq seed=1 podcast_clean] 230/600 pozycji, 1086 s
+2026-11-16 12:29:54,692 INFO eval_context: [testing_greedy/multi_seq seed=1 podcast_clean] 240/600 pozycji, 1150 s
+2026-11-16 12:30:57,761 INFO eval_context: [testing_greedy/multi_seq seed=1 podcast_clean] 250/600 pozycji, 1213 s
+2026-11-16 12:31:58,345 INFO eval_context: [testing_greedy/multi_seq seed=1 podcast_clean] 260/600 pozycji, 1273 s
+2026-11-16 12:32:59,547 INFO eval_context: [testing_greedy/multi_seq seed=1 podcast_clean] 270/600 pozycji, 1335 s
+2026-11-16 12:34:01,634 INFO eval_context: [testing_greedy/multi_seq seed=1 podcast_clean] 280/600 pozycji, 1397 s
+2026-11-16 12:35:04,150 INFO eval_context: [testing_greedy/multi_seq seed=1 podcast_clean] 290/600 pozycji, 1459 s
+2026-11-16 12:36:08,001 INFO eval_context: [testing_greedy/multi_seq seed=1 podcast_clean] 300/600 pozycji, 1523 s
+2026-11-16 12:37:11,829 INFO eval_context: [testing_greedy/multi_seq seed=1 podcast_clean] 310/600 pozycji, 1587 s
+2026-11-16 12:38:16,878 INFO eval_context: [testing_greedy/multi_seq seed=1 podcast_clean] 320/600 pozycji, 1652 s
+2026-11-16 12:39:18,378 INFO eval_context: [testing_greedy/multi_seq seed=1 podcast_clean] 330/600 pozycji, 1713 s
+2026-11-16 12:40:19,597 INFO eval_context: [testing_greedy/multi_seq seed=1 podcast_clean] 340/600 pozycji, 1775 s
+2026-11-16 12:41:25,303 INFO eval_context: [testing_greedy/multi_seq seed=1 podcast_clean] 350/600 pozycji, 1840 s
+2026-11-16 12:42:26,797 INFO eval_context: [testing_greedy/multi_seq seed=1 podcast_clean] 360/600 pozycji, 1902 s
+2026-11-16 12:43:28,713 INFO eval_context: [testing_greedy/multi_seq seed=1 podcast_clean] 370/600 pozycji, 1964 s
+2026-11-16 12:44:34,500 INFO eval_context: [testing_greedy/multi_seq seed=1 podcast_clean] 380/600 pozycji, 2030 s
+2026-11-16 12:45:35,656 INFO eval_context: [testing_greedy/multi_seq seed=1 podcast_clean] 390/600 pozycji, 2091 s
+2026-11-16 12:46:38,941 INFO eval_context: [testing_greedy/multi_seq seed=1 podcast_clean] 400/600 pozycji, 2154 s
+2026-11-16 12:47:40,670 INFO eval_context: [testing_greedy/multi_seq seed=1 podcast_clean] 410/600 pozycji, 2216 s
+2026-11-16 12:48:42,241 INFO eval_context: [testing_greedy/multi_seq seed=1 podcast_clean] 420/600 pozycji, 2277 s
+2026-11-16 12:49:46,236 INFO eval_context: [testing_greedy/multi_seq seed=1 podcast_clean] 430/600 pozycji, 2341 s
+2026-11-16 12:50:48,700 INFO eval_context: [testing_greedy/multi_seq seed=1 podcast_clean] 440/600 pozycji, 2404 s
+2026-11-16 12:51:50,837 INFO eval_context: [testing_greedy/multi_seq seed=1 podcast_clean] 450/600 pozycji, 2466 s
+2026-11-16 12:52:52,844 INFO eval_context: [testing_greedy/multi_seq seed=1 podcast_clean] 460/600 pozycji, 2528 s
+2026-11-16 12:53:57,900 INFO eval_context: [testing_greedy/multi_seq seed=1 podcast_clean] 470/600 pozycji, 2593 s
+2026-11-16 12:54:57,642 INFO eval_context: [testing_greedy/multi_seq seed=1 podcast_clean] 480/600 pozycji, 2653 s
+2026-11-16 12:55:58,842 INFO eval_context: [testing_greedy/multi_seq seed=1 podcast_clean] 490/600 pozycji, 2714 s
+2026-11-16 12:57:00,630 INFO eval_context: [testing_greedy/multi_seq seed=1 podcast_clean] 500/600 pozycji, 2776 s
+2026-11-16 12:58:02,369 INFO eval_context: [testing_greedy/multi_seq seed=1 podcast_clean] 510/600 pozycji, 2837 s
+2026-11-16 12:59:03,619 INFO eval_context: [testing_greedy/multi_seq seed=1 podcast_clean] 520/600 pozycji, 2899 s
+2026-11-16 13:00:09,601 INFO eval_context: [testing_greedy/multi_seq seed=1 podcast_clean] 530/600 pozycji, 2965 s
+2026-11-16 13:01:11,419 INFO eval_context: [testing_greedy/multi_seq seed=1 podcast_clean] 540/600 pozycji, 3026 s
+2026-11-16 13:02:12,349 INFO eval_context: [testing_greedy/multi_seq seed=1 podcast_clean] 550/600 pozycji, 3087 s
+2026-11-16 13:03:13,670 INFO eval_context: [testing_greedy/multi_seq seed=1 podcast_clean] 560/600 pozycji, 3149 s
+2026-11-16 13:04:13,739 INFO eval_context: [testing_greedy/multi_seq seed=1 podcast_clean] 570/600 pozycji, 3209 s
+2026-11-16 13:05:13,117 INFO eval_context: [testing_greedy/multi_seq seed=1 podcast_clean] 580/600 pozycji, 3268 s
+2026-11-16 13:06:13,687 INFO eval_context: [testing_greedy/multi_seq seed=1 podcast_clean] 590/600 pozycji, 3329 s
+2026-11-16 13:07:14,300 INFO eval_context: [testing_greedy/multi_seq seed=1 podcast_clean] 600/600 pozycji, 3389 s
+2026-11-16 13:07:14,400 INFO eval_context: Zmierzono 3000 rekordów w 3389 s
+2026-11-16 13:07:23,562 INFO eval_context: Liczę sha256 modelu (5.4 GB, jednorazowo)...
+
+=== E1: Hit@1 vs c_len — matcher `strict` ===
+  c_len      N   poz.    Hit@1            CI 95%     seedy min-max    Hit@K  obcięte  lat.mean
+----------------------------------------------------------------------------------------------
+      0    600    595    0.025    [0.013, 0.040]       0.025-0.025    0.047       0%       240
+    250    600    595    0.323    [0.286, 0.362]       0.323-0.323    0.468       2%       371
+   1000    600    595    0.323    [0.286, 0.361]       0.323-0.323    0.473       7%       757
+   2000    600    595    0.315    [0.279, 0.354]       0.315-0.315    0.463      11%      1298
+   5000    600    595    0.317    [0.279, 0.354]       0.317-0.317    0.482      27%      2893
+
+--- seen vs unseen (główny wykres tezy) ---
+  c_len                  seen                unseen
+---------------------------------------------------
+      0         0.027 (n=490)         0.018 (n=110)
+    250         0.308 (n=490)         0.391 (n=110)
+   1000         0.310 (n=490)         0.382 (n=110)
+   2000         0.306 (n=490)         0.355 (n=110)
+   5000         0.302 (n=490)         0.382 (n=110)
+
+--- segmenty ---
+  c_len      first_word        mid_word           later
+-------------------------------------------------------
+      0   0.000 (n=200)   0.075 (n=200)   0.000 (n=200)
+    250   0.080 (n=200)   0.680 (n=200)   0.210 (n=200)
+   1000   0.070 (n=200)   0.655 (n=200)   0.245 (n=200)
+   2000   0.070 (n=200)   0.650 (n=200)   0.225 (n=200)
+   5000   0.065 (n=200)   0.655 (n=200)   0.230 (n=200)
+
+=== E2: użyteczność sesyjna (c_len=5000) — matcher `strict` ===
+kubełek               N    Hit@1            CI 95%    Hit@K
+-----------------------------------------------------------
+overall             600    0.317    [0.279, 0.354]    0.482
+first_word          200    0.065    [0.030, 0.100]    0.185
+mid_word            200    0.655    [0.588, 0.721]    0.865
+later               200    0.230    [0.175, 0.285]    0.395
+seen_seen           490    0.302    [0.263, 0.344]    0.476
+seen_unseen         110    0.382    [0.294, 0.473]    0.509
+
+=== E1: Hit@1 vs c_len — matcher `lemma` ===
+  c_len      N   poz.    Hit@1            CI 95%     seedy min-max    Hit@K  obcięte  lat.mean
+----------------------------------------------------------------------------------------------
+      0    600    595    0.045    [0.029, 0.063]       0.045-0.045    0.083       0%       240
+    250    600    595    0.350    [0.311, 0.390]       0.350-0.350    0.483       2%       371
+   1000    600    595    0.345    [0.307, 0.382]       0.345-0.345    0.488       7%       757
+   2000    600    595    0.333    [0.296, 0.372]       0.333-0.333    0.483      11%      1298
+   5000    600    595    0.338    [0.301, 0.375]       0.338-0.338    0.498      27%      2893
+
+--- seen vs unseen (główny wykres tezy) ---
+  c_len                  seen                unseen
+---------------------------------------------------
+      0         0.045 (n=490)         0.045 (n=110)
+    250         0.337 (n=490)         0.409 (n=110)
+   1000         0.333 (n=490)         0.400 (n=110)
+   2000         0.324 (n=490)         0.373 (n=110)
+   5000         0.322 (n=490)         0.409 (n=110)
+
+--- segmenty ---
+  c_len      first_word        mid_word           later
+-------------------------------------------------------
+      0   0.000 (n=200)   0.135 (n=200)   0.000 (n=200)
+    250   0.085 (n=200)   0.735 (n=200)   0.230 (n=200)
+   1000   0.070 (n=200)   0.700 (n=200)   0.265 (n=200)
+   2000   0.070 (n=200)   0.690 (n=200)   0.240 (n=200)
+   5000   0.065 (n=200)   0.705 (n=200)   0.245 (n=200)
+
+=== E2: użyteczność sesyjna (c_len=5000) — matcher `lemma` ===
+kubełek               N    Hit@1            CI 95%    Hit@K
+-----------------------------------------------------------
+overall             600    0.338    [0.301, 0.375]    0.498
+first_word          200    0.065    [0.030, 0.100]    0.190
+mid_word            200    0.705    [0.638, 0.770]    0.890
+later               200    0.245    [0.185, 0.305]    0.415
+seen_seen           490    0.322    [0.282, 0.365]    0.494
+seen_unseen         110    0.409    [0.318, 0.495]    0.518
+
+Latencja: 1112 ms mean / 732 p50 / 3470 p95 / 4125 max
+
+Wyniki: results/model_testing/gemma-4-E4B_greedy/20261116_121044_testing_greedy_5f2e25d8
