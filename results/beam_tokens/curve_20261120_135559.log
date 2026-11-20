@@ -1,0 +1,155 @@
+2026-11-20 13:55:59,444 INFO testing_beam_search: Ładowanie modelu GGUF: models/google_gemma-4-E4B-it-Q4_K_M.gguf
+llama_context: n_ctx_seq (2048) < n_ctx_train (131072) -- the full capacity of the model will not be utilized
+llama_kv_cache_iswa: using full-size SWA cache (ref: https://github.com/ggml-org/llama.cpp/pull/13194#issuecomment-2868343055)
+llama_kv_cache: the V embeddings have different sizes across layers and FA is not enabled - padding V cache to 1024
+llama_kv_cache: the V embeddings have different sizes across layers and FA is not enabled - padding V cache to 1024
+2026-11-20 13:56:01,138 INFO testing_beam_search: Model załadowany (n_vocab=262144, n_seq_max=64).
+2026-11-20 13:56:02,002 INFO eval_tokens: [curve] rozgrzewka gotowa; 300 pozycji × 11 przypadków
+2026-11-20 13:56:02,003 INFO eval_tokens: Do policzenia: 3300 rekordów na 300 pozycjach (już jest 0)
+2026-11-20 13:56:22,237 INFO eval_tokens: 10/300 pozycji, 110/3300 rekordów, 20 s, ETA 587 s
+2026-11-20 13:56:44,398 INFO eval_tokens: 20/300 pozycji, 220/3300 rekordów, 42 s, ETA 594 s
+2026-11-20 13:57:05,029 INFO eval_tokens: 30/300 pozycji, 330/3300 rekordów, 63 s, ETA 567 s
+2026-11-20 13:57:25,690 INFO eval_tokens: 40/300 pozycji, 440/3300 rekordów, 84 s, ETA 544 s
+2026-11-20 13:57:45,351 INFO eval_tokens: 50/300 pozycji, 550/3300 rekordów, 103 s, ETA 517 s
+2026-11-20 13:58:06,786 INFO eval_tokens: 60/300 pozycji, 660/3300 rekordów, 125 s, ETA 499 s
+2026-11-20 13:58:25,823 INFO eval_tokens: 70/300 pozycji, 770/3300 rekordów, 144 s, ETA 473 s
+2026-11-20 13:58:44,795 INFO eval_tokens: 80/300 pozycji, 880/3300 rekordów, 163 s, ETA 448 s
+2026-11-20 13:59:05,515 INFO eval_tokens: 90/300 pozycji, 990/3300 rekordów, 184 s, ETA 428 s
+2026-11-20 13:59:25,125 INFO eval_tokens: 100/300 pozycji, 1100/3300 rekordów, 203 s, ETA 406 s
+2026-11-20 13:59:38,851 INFO eval_tokens: 110/300 pozycji, 1210/3300 rekordów, 217 s, ETA 375 s
+2026-11-20 13:59:51,123 INFO eval_tokens: 120/300 pozycji, 1320/3300 rekordów, 229 s, ETA 344 s
+2026-11-20 14:00:05,059 INFO eval_tokens: 130/300 pozycji, 1430/3300 rekordów, 243 s, ETA 318 s
+2026-11-20 14:00:20,726 INFO eval_tokens: 140/300 pozycji, 1540/3300 rekordów, 259 s, ETA 296 s
+2026-11-20 14:00:34,236 INFO eval_tokens: 150/300 pozycji, 1650/3300 rekordów, 272 s, ETA 272 s
+2026-11-20 14:00:48,911 INFO eval_tokens: 160/300 pozycji, 1760/3300 rekordów, 287 s, ETA 251 s
+2026-11-20 14:01:02,146 INFO eval_tokens: 170/300 pozycji, 1870/3300 rekordów, 300 s, ETA 230 s
+2026-11-20 14:01:15,387 INFO eval_tokens: 180/300 pozycji, 1980/3300 rekordów, 313 s, ETA 209 s
+2026-11-20 14:01:28,579 INFO eval_tokens: 190/300 pozycji, 2090/3300 rekordów, 327 s, ETA 189 s
+2026-11-20 14:01:42,655 INFO eval_tokens: 200/300 pozycji, 2200/3300 rekordów, 341 s, ETA 170 s
+2026-11-20 14:01:54,557 INFO eval_tokens: 210/300 pozycji, 2310/3300 rekordów, 353 s, ETA 151 s
+2026-11-20 14:02:06,643 INFO eval_tokens: 220/300 pozycji, 2420/3300 rekordów, 365 s, ETA 133 s
+2026-11-20 14:02:21,654 INFO eval_tokens: 230/300 pozycji, 2530/3300 rekordów, 380 s, ETA 116 s
+2026-11-20 14:02:34,765 INFO eval_tokens: 240/300 pozycji, 2640/3300 rekordów, 393 s, ETA 98 s
+2026-11-20 14:02:48,281 INFO eval_tokens: 250/300 pozycji, 2750/3300 rekordów, 406 s, ETA 81 s
+2026-11-20 14:03:02,885 INFO eval_tokens: 260/300 pozycji, 2860/3300 rekordów, 421 s, ETA 65 s
+2026-11-20 14:03:16,477 INFO eval_tokens: 270/300 pozycji, 2970/3300 rekordów, 434 s, ETA 48 s
+2026-11-20 14:03:29,187 INFO eval_tokens: 280/300 pozycji, 3080/3300 rekordów, 447 s, ETA 32 s
+2026-11-20 14:03:42,885 INFO eval_tokens: 290/300 pozycji, 3190/3300 rekordów, 461 s, ETA 16 s
+2026-11-20 14:03:55,672 INFO eval_tokens: 300/300 pozycji, 3300/3300 rekordów, 474 s, ETA 0 s
+2026-11-20 14:03:55,673 INFO eval_tokens: Pomiar: 474 s
+2026-11-20 14:04:08,121 INFO eval_tokens: Wyniki: results/beam_tokens/curve_gemma
+
+=== E1: Hit@1 vs c_len — matcher `strict` ===
+  c_len      N   poz.    Hit@1            CI 95%     seedy min-max    Hit@K  obcięte  lat.mean
+----------------------------------------------------------------------------------------------
+      0    300    296    0.023    [0.010, 0.040]       0.023-0.023    0.043       0%        68
+      5    300    296    0.243    [0.197, 0.292]       0.243-0.243    0.310       0%       111
+     10    300    296    0.260    [0.214, 0.310]       0.260-0.260    0.343       0%       141
+     20    300    296    0.297    [0.247, 0.349]       0.297-0.297    0.360       0%       125
+     35    300    296    0.327    [0.274, 0.380]       0.327-0.327    0.403       0%       130
+     50    300    296    0.333    [0.281, 0.387]       0.333-0.333    0.420       0%       131
+     75    300    296    0.360    [0.305, 0.413]       0.360-0.360    0.437       0%       140
+    100    300    296    0.363    [0.309, 0.419]       0.363-0.363    0.433       0%       145
+    150    300    296    0.367    [0.313, 0.419]       0.367-0.367    0.440       0%       165
+    200    300    296    0.370    [0.317, 0.425]       0.370-0.370    0.453       0%       187
+    250    300    296    0.377    [0.322, 0.431]       0.377-0.377    0.450       0%       201
+
+--- seen vs unseen (główny wykres tezy) ---
+  c_len                  seen                unseen
+---------------------------------------------------
+      0         0.020 (n=251)          0.041 (n=49)
+      5         0.207 (n=251)          0.429 (n=49)
+     10         0.223 (n=251)          0.449 (n=49)
+     20         0.259 (n=251)          0.490 (n=49)
+     35         0.299 (n=251)          0.469 (n=49)
+     50         0.303 (n=251)          0.490 (n=49)
+     75         0.335 (n=251)          0.490 (n=49)
+    100         0.331 (n=251)          0.531 (n=49)
+    150         0.343 (n=251)          0.490 (n=49)
+    200         0.343 (n=251)          0.510 (n=49)
+    250         0.355 (n=251)          0.490 (n=49)
+
+--- segmenty ---
+  c_len      first_word        mid_word           later
+-------------------------------------------------------
+      0   0.000 (n=100)   0.070 (n=100)   0.000 (n=100)
+      5   0.000 (n=100)   0.650 (n=100)   0.080 (n=100)
+     10   0.000 (n=100)   0.680 (n=100)   0.100 (n=100)
+     20   0.000 (n=100)   0.730 (n=100)   0.160 (n=100)
+     35   0.020 (n=100)   0.780 (n=100)   0.180 (n=100)
+     50   0.010 (n=100)   0.810 (n=100)   0.180 (n=100)
+     75   0.040 (n=100)   0.830 (n=100)   0.210 (n=100)
+    100   0.040 (n=100)   0.830 (n=100)   0.220 (n=100)
+    150   0.040 (n=100)   0.830 (n=100)   0.230 (n=100)
+    200   0.060 (n=100)   0.800 (n=100)   0.250 (n=100)
+    250   0.070 (n=100)   0.830 (n=100)   0.230 (n=100)
+
+=== E2: użyteczność sesyjna (c_len=250) — matcher `strict` ===
+kubełek               N    Hit@1            CI 95%    Hit@K
+-----------------------------------------------------------
+overall             300    0.377    [0.322, 0.431]    0.450
+first_word          100    0.070    [0.020, 0.120]    0.090
+mid_word            100    0.830    [0.750, 0.900]    0.900
+later               100    0.230    [0.150, 0.320]    0.360
+seen_seen           251    0.355    [0.296, 0.414]    0.422
+seen_unseen          49    0.490    [0.353, 0.625]    0.592
+
+=== E1: Hit@1 vs c_len — matcher `lemma` ===
+  c_len      N   poz.    Hit@1            CI 95%     seedy min-max    Hit@K  obcięte  lat.mean
+----------------------------------------------------------------------------------------------
+      0    300    296    0.043    [0.020, 0.067]       0.043-0.043    0.063       0%        68
+      5    300    296    0.267    [0.217, 0.320]       0.267-0.267    0.333       0%       111
+     10    300    296    0.277    [0.231, 0.327]       0.277-0.277    0.373       0%       141
+     20    300    296    0.310    [0.260, 0.363]       0.310-0.310    0.373       0%       125
+     35    300    296    0.350    [0.297, 0.404]       0.350-0.350    0.413       0%       130
+     50    300    296    0.350    [0.298, 0.405]       0.350-0.350    0.430       0%       131
+     75    300    296    0.373    [0.320, 0.428]       0.373-0.373    0.450       0%       140
+    100    300    296    0.380    [0.327, 0.437]       0.380-0.380    0.443       0%       145
+    150    300    296    0.380    [0.328, 0.433]       0.380-0.380    0.453       0%       165
+    200    300    296    0.383    [0.331, 0.440]       0.383-0.383    0.470       0%       187
+    250    300    296    0.387    [0.332, 0.441]       0.387-0.387    0.463       0%       201
+
+--- seen vs unseen (główny wykres tezy) ---
+  c_len                  seen                unseen
+---------------------------------------------------
+      0         0.044 (n=251)          0.041 (n=49)
+      5         0.235 (n=251)          0.429 (n=49)
+     10         0.243 (n=251)          0.449 (n=49)
+     20         0.275 (n=251)          0.490 (n=49)
+     35         0.327 (n=251)          0.469 (n=49)
+     50         0.323 (n=251)          0.490 (n=49)
+     75         0.351 (n=251)          0.490 (n=49)
+    100         0.351 (n=251)          0.531 (n=49)
+    150         0.359 (n=251)          0.490 (n=49)
+    200         0.359 (n=251)          0.510 (n=49)
+    250         0.367 (n=251)          0.490 (n=49)
+
+--- segmenty ---
+  c_len      first_word        mid_word           later
+-------------------------------------------------------
+      0   0.000 (n=100)   0.130 (n=100)   0.000 (n=100)
+      5   0.000 (n=100)   0.700 (n=100)   0.100 (n=100)
+     10   0.000 (n=100)   0.720 (n=100)   0.110 (n=100)
+     20   0.000 (n=100)   0.770 (n=100)   0.160 (n=100)
+     35   0.020 (n=100)   0.820 (n=100)   0.210 (n=100)
+     50   0.010 (n=100)   0.850 (n=100)   0.190 (n=100)
+     75   0.040 (n=100)   0.860 (n=100)   0.220 (n=100)
+    100   0.040 (n=100)   0.870 (n=100)   0.230 (n=100)
+    150   0.040 (n=100)   0.870 (n=100)   0.230 (n=100)
+    200   0.060 (n=100)   0.830 (n=100)   0.260 (n=100)
+    250   0.070 (n=100)   0.850 (n=100)   0.240 (n=100)
+
+=== E2: użyteczność sesyjna (c_len=250) — matcher `lemma` ===
+kubełek               N    Hit@1            CI 95%    Hit@K
+-----------------------------------------------------------
+overall             300    0.387    [0.332, 0.441]    0.463
+first_word          100    0.070    [0.020, 0.120]    0.090
+mid_word            100    0.850    [0.780, 0.920]    0.920
+later               100    0.240    [0.160, 0.330]    0.380
+seen_seen           251    0.367    [0.307, 0.428]    0.438
+seen_unseen          49    0.490    [0.353, 0.625]    0.592
+
+Latencja: 140 ms mean / 128 p50 / 268 p95 / 389 max
+
+Wyniki: results/beam_tokens/curve_gemma
+Spójność ze sweepem (c_len=250, `bw5_k16_p1`): 300/300 identycznych list i score'ów.

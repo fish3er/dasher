@@ -1,0 +1,305 @@
+2026-11-20 14:57:44,199 INFO testing_beam_search: Ładowanie modelu GGUF: models/google_gemma-4-E4B-it-Q4_K_M.gguf
+llama_context: n_ctx_seq (2048) < n_ctx_train (131072) -- the full capacity of the model will not be utilized
+llama_kv_cache_iswa: using full-size SWA cache (ref: https://github.com/ggml-org/llama.cpp/pull/13194#issuecomment-2868343055)
+llama_kv_cache: the V embeddings have different sizes across layers and FA is not enabled - padding V cache to 1024
+llama_kv_cache: the V embeddings have different sizes across layers and FA is not enabled - padding V cache to 1024
+2026-11-20 14:57:45,885 INFO testing_beam_search: Model załadowany (n_vocab=262144, n_seq_max=64).
+2026-11-20 14:57:46,719 INFO eval_tokens: [paths] rozgrzewka gotowa; 2466 pozycji × 3 przypadków
+2026-11-20 14:57:46,724 INFO eval_tokens: Do policzenia: 7398 rekordów na 2466 pozycjach (już jest 0)
+2026-11-20 14:57:54,330 INFO eval_tokens: 10/2466 pozycji, 30/7398 rekordów, 8 s, ETA 1868 s
+2026-11-20 14:58:01,511 INFO eval_tokens: 20/2466 pozycji, 60/7398 rekordów, 15 s, ETA 1808 s
+2026-11-20 14:58:08,687 INFO eval_tokens: 30/2466 pozycji, 90/7398 rekordów, 22 s, ETA 1783 s
+2026-11-20 14:58:15,897 INFO eval_tokens: 40/2466 pozycji, 120/7398 rekordów, 29 s, ETA 1769 s
+2026-11-20 14:58:23,085 INFO eval_tokens: 50/2466 pozycji, 150/7398 rekordów, 36 s, ETA 1757 s
+2026-11-20 14:58:30,354 INFO eval_tokens: 60/2466 pozycji, 180/7398 rekordów, 44 s, ETA 1750 s
+2026-11-20 14:58:37,592 INFO eval_tokens: 70/2466 pozycji, 210/7398 rekordów, 51 s, ETA 1741 s
+2026-11-20 14:58:44,812 INFO eval_tokens: 80/2466 pozycji, 240/7398 rekordów, 58 s, ETA 1732 s
+2026-11-20 14:58:52,031 INFO eval_tokens: 90/2466 pozycji, 270/7398 rekordów, 65 s, ETA 1724 s
+2026-11-20 14:58:59,278 INFO eval_tokens: 100/2466 pozycji, 300/7398 rekordów, 73 s, ETA 1717 s
+2026-11-20 14:59:06,568 INFO eval_tokens: 110/2466 pozycji, 330/7398 rekordów, 80 s, ETA 1710 s
+2026-11-20 14:59:13,848 INFO eval_tokens: 120/2466 pozycji, 360/7398 rekordów, 87 s, ETA 1703 s
+2026-11-20 14:59:21,160 INFO eval_tokens: 130/2466 pozycji, 390/7398 rekordów, 94 s, ETA 1697 s
+2026-11-20 14:59:28,441 INFO eval_tokens: 140/2466 pozycji, 420/7398 rekordów, 102 s, ETA 1690 s
+2026-11-20 14:59:35,710 INFO eval_tokens: 150/2466 pozycji, 450/7398 rekordów, 109 s, ETA 1683 s
+2026-11-20 14:59:42,989 INFO eval_tokens: 160/2466 pozycji, 480/7398 rekordów, 116 s, ETA 1676 s
+2026-11-20 14:59:50,261 INFO eval_tokens: 170/2466 pozycji, 510/7398 rekordów, 124 s, ETA 1668 s
+2026-11-20 14:59:57,556 INFO eval_tokens: 180/2466 pozycji, 540/7398 rekordów, 131 s, ETA 1662 s
+2026-11-20 15:00:04,823 INFO eval_tokens: 190/2466 pozycji, 570/7398 rekordów, 138 s, ETA 1654 s
+2026-11-20 15:00:12,135 INFO eval_tokens: 200/2466 pozycji, 600/7398 rekordów, 145 s, ETA 1648 s
+2026-11-20 15:00:19,457 INFO eval_tokens: 210/2466 pozycji, 630/7398 rekordów, 153 s, ETA 1641 s
+2026-11-20 15:00:26,747 INFO eval_tokens: 220/2466 pozycji, 660/7398 rekordów, 160 s, ETA 1634 s
+2026-11-20 15:00:34,046 INFO eval_tokens: 230/2466 pozycji, 690/7398 rekordów, 167 s, ETA 1627 s
+2026-11-20 15:00:41,378 INFO eval_tokens: 240/2466 pozycji, 720/7398 rekordów, 175 s, ETA 1620 s
+2026-11-20 15:00:48,740 INFO eval_tokens: 250/2466 pozycji, 750/7398 rekordów, 182 s, ETA 1613 s
+2026-11-20 15:00:56,082 INFO eval_tokens: 260/2466 pozycji, 780/7398 rekordów, 189 s, ETA 1607 s
+2026-11-20 15:01:03,437 INFO eval_tokens: 270/2466 pozycji, 810/7398 rekordów, 197 s, ETA 1600 s
+2026-11-20 15:01:10,762 INFO eval_tokens: 280/2466 pozycji, 840/7398 rekordów, 204 s, ETA 1593 s
+2026-11-20 15:01:18,091 INFO eval_tokens: 290/2466 pozycji, 870/7398 rekordów, 211 s, ETA 1586 s
+2026-11-20 15:01:25,393 INFO eval_tokens: 300/2466 pozycji, 900/7398 rekordów, 219 s, ETA 1579 s
+2026-11-20 15:01:32,704 INFO eval_tokens: 310/2466 pozycji, 930/7398 rekordów, 226 s, ETA 1572 s
+2026-11-20 15:01:40,030 INFO eval_tokens: 320/2466 pozycji, 960/7398 rekordów, 233 s, ETA 1565 s
+2026-11-20 15:01:47,313 INFO eval_tokens: 330/2466 pozycji, 990/7398 rekordów, 241 s, ETA 1557 s
+2026-11-20 15:01:54,612 INFO eval_tokens: 340/2466 pozycji, 1020/7398 rekordów, 248 s, ETA 1550 s
+2026-11-20 15:02:01,915 INFO eval_tokens: 350/2466 pozycji, 1050/7398 rekordów, 255 s, ETA 1543 s
+2026-11-20 15:02:09,244 INFO eval_tokens: 360/2466 pozycji, 1080/7398 rekordów, 263 s, ETA 1536 s
+2026-11-20 15:02:16,578 INFO eval_tokens: 370/2466 pozycji, 1110/7398 rekordów, 270 s, ETA 1529 s
+2026-11-20 15:02:23,911 INFO eval_tokens: 380/2466 pozycji, 1140/7398 rekordów, 277 s, ETA 1522 s
+2026-11-20 15:02:31,285 INFO eval_tokens: 390/2466 pozycji, 1170/7398 rekordów, 285 s, ETA 1515 s
+2026-11-20 15:02:38,629 INFO eval_tokens: 400/2466 pozycji, 1200/7398 rekordów, 292 s, ETA 1508 s
+2026-11-20 15:02:45,988 INFO eval_tokens: 410/2466 pozycji, 1230/7398 rekordów, 299 s, ETA 1501 s
+2026-11-20 15:02:53,315 INFO eval_tokens: 420/2466 pozycji, 1260/7398 rekordów, 307 s, ETA 1494 s
+2026-11-20 15:03:00,638 INFO eval_tokens: 430/2466 pozycji, 1290/7398 rekordów, 314 s, ETA 1486 s
+2026-11-20 15:03:08,037 INFO eval_tokens: 440/2466 pozycji, 1320/7398 rekordów, 321 s, ETA 1479 s
+2026-11-20 15:03:15,371 INFO eval_tokens: 450/2466 pozycji, 1350/7398 rekordów, 329 s, ETA 1472 s
+2026-11-20 15:03:22,613 INFO eval_tokens: 460/2466 pozycji, 1380/7398 rekordów, 336 s, ETA 1465 s
+2026-11-20 15:03:29,926 INFO eval_tokens: 470/2466 pozycji, 1410/7398 rekordów, 343 s, ETA 1458 s
+2026-11-20 15:03:37,254 INFO eval_tokens: 480/2466 pozycji, 1440/7398 rekordów, 351 s, ETA 1450 s
+2026-11-20 15:03:44,591 INFO eval_tokens: 490/2466 pozycji, 1470/7398 rekordów, 358 s, ETA 1443 s
+2026-11-20 15:03:51,916 INFO eval_tokens: 500/2466 pozycji, 1500/7398 rekordów, 365 s, ETA 1436 s
+2026-11-20 15:03:59,272 INFO eval_tokens: 510/2466 pozycji, 1530/7398 rekordów, 373 s, ETA 1429 s
+2026-11-20 15:04:06,602 INFO eval_tokens: 520/2466 pozycji, 1560/7398 rekordów, 380 s, ETA 1422 s
+2026-11-20 15:04:13,991 INFO eval_tokens: 530/2466 pozycji, 1590/7398 rekordów, 387 s, ETA 1415 s
+2026-11-20 15:04:21,376 INFO eval_tokens: 540/2466 pozycji, 1620/7398 rekordów, 395 s, ETA 1408 s
+2026-11-20 15:04:28,732 INFO eval_tokens: 550/2466 pozycji, 1650/7398 rekordów, 402 s, ETA 1400 s
+2026-11-20 15:04:36,088 INFO eval_tokens: 560/2466 pozycji, 1680/7398 rekordów, 409 s, ETA 1393 s
+2026-11-20 15:04:43,408 INFO eval_tokens: 570/2466 pozycji, 1710/7398 rekordów, 417 s, ETA 1386 s
+2026-11-20 15:04:50,773 INFO eval_tokens: 580/2466 pozycji, 1740/7398 rekordów, 424 s, ETA 1379 s
+2026-11-20 15:04:58,097 INFO eval_tokens: 590/2466 pozycji, 1770/7398 rekordów, 431 s, ETA 1372 s
+2026-11-20 15:05:05,442 INFO eval_tokens: 600/2466 pozycji, 1800/7398 rekordów, 439 s, ETA 1364 s
+2026-11-20 15:05:12,801 INFO eval_tokens: 610/2466 pozycji, 1830/7398 rekordów, 446 s, ETA 1357 s
+2026-11-20 15:05:20,157 INFO eval_tokens: 620/2466 pozycji, 1860/7398 rekordów, 453 s, ETA 1350 s
+2026-11-20 15:05:27,542 INFO eval_tokens: 630/2466 pozycji, 1890/7398 rekordów, 461 s, ETA 1343 s
+2026-11-20 15:05:35,000 INFO eval_tokens: 640/2466 pozycji, 1920/7398 rekordów, 468 s, ETA 1336 s
+2026-11-20 15:05:42,367 INFO eval_tokens: 650/2466 pozycji, 1950/7398 rekordów, 476 s, ETA 1329 s
+2026-11-20 15:05:49,762 INFO eval_tokens: 660/2466 pozycji, 1980/7398 rekordów, 483 s, ETA 1322 s
+2026-11-20 15:05:57,193 INFO eval_tokens: 670/2466 pozycji, 2010/7398 rekordów, 490 s, ETA 1315 s
+2026-11-20 15:06:04,607 INFO eval_tokens: 680/2466 pozycji, 2040/7398 rekordów, 498 s, ETA 1308 s
+2026-11-20 15:06:11,951 INFO eval_tokens: 690/2466 pozycji, 2070/7398 rekordów, 505 s, ETA 1300 s
+2026-11-20 15:06:19,314 INFO eval_tokens: 700/2466 pozycji, 2100/7398 rekordów, 513 s, ETA 1293 s
+2026-11-20 15:06:26,688 INFO eval_tokens: 710/2466 pozycji, 2130/7398 rekordów, 520 s, ETA 1286 s
+2026-11-20 15:06:34,142 INFO eval_tokens: 720/2466 pozycji, 2160/7398 rekordów, 527 s, ETA 1279 s
+2026-11-20 15:06:41,562 INFO eval_tokens: 730/2466 pozycji, 2190/7398 rekordów, 535 s, ETA 1272 s
+2026-11-20 15:06:49,016 INFO eval_tokens: 740/2466 pozycji, 2220/7398 rekordów, 542 s, ETA 1265 s
+2026-11-20 15:06:56,448 INFO eval_tokens: 750/2466 pozycji, 2250/7398 rekordów, 550 s, ETA 1258 s
+2026-11-20 15:07:03,921 INFO eval_tokens: 760/2466 pozycji, 2280/7398 rekordów, 557 s, ETA 1251 s
+2026-11-20 15:07:12,077 INFO eval_tokens: 770/2466 pozycji, 2310/7398 rekordów, 565 s, ETA 1245 s
+2026-11-20 15:07:19,935 INFO eval_tokens: 780/2466 pozycji, 2340/7398 rekordów, 573 s, ETA 1239 s
+2026-11-20 15:07:27,379 INFO eval_tokens: 790/2466 pozycji, 2370/7398 rekordów, 581 s, ETA 1232 s
+2026-11-20 15:07:34,880 INFO eval_tokens: 800/2466 pozycji, 2400/7398 rekordów, 588 s, ETA 1225 s
+2026-11-20 15:07:42,284 INFO eval_tokens: 810/2466 pozycji, 2430/7398 rekordów, 596 s, ETA 1218 s
+2026-11-20 15:07:49,734 INFO eval_tokens: 820/2466 pozycji, 2460/7398 rekordów, 603 s, ETA 1210 s
+2026-11-20 15:07:57,177 INFO eval_tokens: 830/2466 pozycji, 2490/7398 rekordów, 610 s, ETA 1203 s
+2026-11-20 15:08:04,601 INFO eval_tokens: 840/2466 pozycji, 2520/7398 rekordów, 618 s, ETA 1196 s
+2026-11-20 15:08:12,074 INFO eval_tokens: 850/2466 pozycji, 2550/7398 rekordów, 625 s, ETA 1189 s
+2026-11-20 15:08:19,533 INFO eval_tokens: 860/2466 pozycji, 2580/7398 rekordów, 633 s, ETA 1182 s
+2026-11-20 15:08:26,933 INFO eval_tokens: 870/2466 pozycji, 2610/7398 rekordów, 640 s, ETA 1174 s
+2026-11-20 15:08:34,383 INFO eval_tokens: 880/2466 pozycji, 2640/7398 rekordów, 648 s, ETA 1167 s
+2026-11-20 15:08:41,859 INFO eval_tokens: 890/2466 pozycji, 2670/7398 rekordów, 655 s, ETA 1160 s
+2026-11-20 15:08:49,321 INFO eval_tokens: 900/2466 pozycji, 2700/7398 rekordów, 663 s, ETA 1153 s
+2026-11-20 15:08:56,816 INFO eval_tokens: 910/2466 pozycji, 2730/7398 rekordów, 670 s, ETA 1146 s
+2026-11-20 15:09:04,289 INFO eval_tokens: 920/2466 pozycji, 2760/7398 rekordów, 678 s, ETA 1139 s
+2026-11-20 15:09:11,762 INFO eval_tokens: 930/2466 pozycji, 2790/7398 rekordów, 685 s, ETA 1131 s
+2026-11-20 15:09:19,245 INFO eval_tokens: 940/2466 pozycji, 2820/7398 rekordów, 693 s, ETA 1124 s
+2026-11-20 15:09:26,707 INFO eval_tokens: 950/2466 pozycji, 2850/7398 rekordów, 700 s, ETA 1117 s
+2026-11-20 15:09:34,148 INFO eval_tokens: 960/2466 pozycji, 2880/7398 rekordów, 707 s, ETA 1110 s
+2026-11-20 15:09:41,624 INFO eval_tokens: 970/2466 pozycji, 2910/7398 rekordów, 715 s, ETA 1103 s
+2026-11-20 15:09:49,112 INFO eval_tokens: 980/2466 pozycji, 2940/7398 rekordów, 722 s, ETA 1095 s
+2026-11-20 15:09:56,586 INFO eval_tokens: 990/2466 pozycji, 2970/7398 rekordów, 730 s, ETA 1088 s
+2026-11-20 15:10:04,087 INFO eval_tokens: 1000/2466 pozycji, 3000/7398 rekordów, 737 s, ETA 1081 s
+2026-11-20 15:10:11,529 INFO eval_tokens: 1010/2466 pozycji, 3030/7398 rekordów, 745 s, ETA 1074 s
+2026-11-20 15:10:19,045 INFO eval_tokens: 1020/2466 pozycji, 3060/7398 rekordów, 752 s, ETA 1067 s
+2026-11-20 15:10:26,557 INFO eval_tokens: 1030/2466 pozycji, 3090/7398 rekordów, 760 s, ETA 1059 s
+2026-11-20 15:10:34,155 INFO eval_tokens: 1040/2466 pozycji, 3120/7398 rekordów, 767 s, ETA 1052 s
+2026-11-20 15:10:41,685 INFO eval_tokens: 1050/2466 pozycji, 3150/7398 rekordów, 775 s, ETA 1045 s
+2026-11-20 15:10:49,193 INFO eval_tokens: 1060/2466 pozycji, 3180/7398 rekordów, 782 s, ETA 1038 s
+2026-11-20 15:10:56,691 INFO eval_tokens: 1070/2466 pozycji, 3210/7398 rekordów, 790 s, ETA 1031 s
+2026-11-20 15:11:04,217 INFO eval_tokens: 1080/2466 pozycji, 3240/7398 rekordów, 797 s, ETA 1023 s
+2026-11-20 15:11:11,711 INFO eval_tokens: 1090/2466 pozycji, 3270/7398 rekordów, 805 s, ETA 1016 s
+2026-11-20 15:11:19,205 INFO eval_tokens: 1100/2466 pozycji, 3300/7398 rekordów, 812 s, ETA 1009 s
+2026-11-20 15:11:26,732 INFO eval_tokens: 1110/2466 pozycji, 3330/7398 rekordów, 820 s, ETA 1002 s
+2026-11-20 15:11:34,268 INFO eval_tokens: 1120/2466 pozycji, 3360/7398 rekordów, 828 s, ETA 995 s
+2026-11-20 15:11:41,735 INFO eval_tokens: 1130/2466 pozycji, 3390/7398 rekordów, 835 s, ETA 987 s
+2026-11-20 15:11:49,265 INFO eval_tokens: 1140/2466 pozycji, 3420/7398 rekordów, 843 s, ETA 980 s
+2026-11-20 15:11:56,754 INFO eval_tokens: 1150/2466 pozycji, 3450/7398 rekordów, 850 s, ETA 973 s
+2026-11-20 15:12:04,258 INFO eval_tokens: 1160/2466 pozycji, 3480/7398 rekordów, 858 s, ETA 965 s
+2026-11-20 15:12:11,768 INFO eval_tokens: 1170/2466 pozycji, 3510/7398 rekordów, 865 s, ETA 958 s
+2026-11-20 15:12:19,283 INFO eval_tokens: 1180/2466 pozycji, 3540/7398 rekordów, 873 s, ETA 951 s
+2026-11-20 15:12:26,761 INFO eval_tokens: 1190/2466 pozycji, 3570/7398 rekordów, 880 s, ETA 944 s
+2026-11-20 15:12:34,294 INFO eval_tokens: 1200/2466 pozycji, 3600/7398 rekordów, 888 s, ETA 936 s
+2026-11-20 15:12:41,808 INFO eval_tokens: 1210/2466 pozycji, 3630/7398 rekordów, 895 s, ETA 929 s
+2026-11-20 15:12:49,403 INFO eval_tokens: 1220/2466 pozycji, 3660/7398 rekordów, 903 s, ETA 922 s
+2026-11-20 15:12:57,164 INFO eval_tokens: 1230/2466 pozycji, 3690/7398 rekordów, 910 s, ETA 915 s
+2026-11-20 15:13:04,713 INFO eval_tokens: 1240/2466 pozycji, 3720/7398 rekordów, 918 s, ETA 908 s
+2026-11-20 15:13:12,323 INFO eval_tokens: 1250/2466 pozycji, 3750/7398 rekordów, 926 s, ETA 900 s
+2026-11-20 15:13:19,959 INFO eval_tokens: 1260/2466 pozycji, 3780/7398 rekordów, 933 s, ETA 893 s
+2026-11-20 15:13:27,577 INFO eval_tokens: 1270/2466 pozycji, 3810/7398 rekordów, 941 s, ETA 886 s
+2026-11-20 15:13:35,109 INFO eval_tokens: 1280/2466 pozycji, 3840/7398 rekordów, 948 s, ETA 879 s
+2026-11-20 15:13:42,713 INFO eval_tokens: 1290/2466 pozycji, 3870/7398 rekordów, 956 s, ETA 872 s
+2026-11-20 15:13:50,344 INFO eval_tokens: 1300/2466 pozycji, 3900/7398 rekordów, 964 s, ETA 864 s
+2026-11-20 15:13:57,921 INFO eval_tokens: 1310/2466 pozycji, 3930/7398 rekordów, 971 s, ETA 857 s
+2026-11-20 15:14:05,454 INFO eval_tokens: 1320/2466 pozycji, 3960/7398 rekordów, 979 s, ETA 850 s
+2026-11-20 15:14:13,081 INFO eval_tokens: 1330/2466 pozycji, 3990/7398 rekordów, 986 s, ETA 842 s
+2026-11-20 15:14:20,610 INFO eval_tokens: 1340/2466 pozycji, 4020/7398 rekordów, 994 s, ETA 835 s
+2026-11-20 15:14:27,942 INFO eval_tokens: 1350/2466 pozycji, 4050/7398 rekordów, 1001 s, ETA 828 s
+2026-11-20 15:14:35,235 INFO eval_tokens: 1360/2466 pozycji, 4080/7398 rekordów, 1009 s, ETA 820 s
+2026-11-20 15:14:42,595 INFO eval_tokens: 1370/2466 pozycji, 4110/7398 rekordów, 1016 s, ETA 813 s
+2026-11-20 15:14:49,933 INFO eval_tokens: 1380/2466 pozycji, 4140/7398 rekordów, 1023 s, ETA 805 s
+2026-11-20 15:14:57,228 INFO eval_tokens: 1390/2466 pozycji, 4170/7398 rekordów, 1031 s, ETA 798 s
+2026-11-20 15:15:04,587 INFO eval_tokens: 1400/2466 pozycji, 4200/7398 rekordów, 1038 s, ETA 790 s
+2026-11-20 15:15:11,899 INFO eval_tokens: 1410/2466 pozycji, 4230/7398 rekordów, 1045 s, ETA 783 s
+2026-11-20 15:15:19,162 INFO eval_tokens: 1420/2466 pozycji, 4260/7398 rekordów, 1052 s, ETA 775 s
+2026-11-20 15:15:26,483 INFO eval_tokens: 1430/2466 pozycji, 4290/7398 rekordów, 1060 s, ETA 768 s
+2026-11-20 15:15:33,794 INFO eval_tokens: 1440/2466 pozycji, 4320/7398 rekordów, 1067 s, ETA 760 s
+2026-11-20 15:15:41,123 INFO eval_tokens: 1450/2466 pozycji, 4350/7398 rekordów, 1074 s, ETA 753 s
+2026-11-20 15:15:48,429 INFO eval_tokens: 1460/2466 pozycji, 4380/7398 rekordów, 1082 s, ETA 745 s
+2026-11-20 15:15:55,750 INFO eval_tokens: 1470/2466 pozycji, 4410/7398 rekordów, 1089 s, ETA 738 s
+2026-11-20 15:16:03,098 INFO eval_tokens: 1480/2466 pozycji, 4440/7398 rekordów, 1096 s, ETA 730 s
+2026-11-20 15:16:10,443 INFO eval_tokens: 1490/2466 pozycji, 4470/7398 rekordów, 1104 s, ETA 723 s
+2026-11-20 15:16:17,784 INFO eval_tokens: 1500/2466 pozycji, 4500/7398 rekordów, 1111 s, ETA 716 s
+2026-11-20 15:16:25,171 INFO eval_tokens: 1510/2466 pozycji, 4530/7398 rekordów, 1118 s, ETA 708 s
+2026-11-20 15:16:32,533 INFO eval_tokens: 1520/2466 pozycji, 4560/7398 rekordów, 1126 s, ETA 701 s
+2026-11-20 15:16:39,953 INFO eval_tokens: 1530/2466 pozycji, 4590/7398 rekordów, 1133 s, ETA 693 s
+2026-11-20 15:16:47,385 INFO eval_tokens: 1540/2466 pozycji, 4620/7398 rekordów, 1141 s, ETA 686 s
+2026-11-20 15:16:54,723 INFO eval_tokens: 1550/2466 pozycji, 4650/7398 rekordów, 1148 s, ETA 678 s
+2026-11-20 15:17:02,143 INFO eval_tokens: 1560/2466 pozycji, 4680/7398 rekordów, 1155 s, ETA 671 s
+2026-11-20 15:17:09,487 INFO eval_tokens: 1570/2466 pozycji, 4710/7398 rekordów, 1163 s, ETA 664 s
+2026-11-20 15:17:16,831 INFO eval_tokens: 1580/2466 pozycji, 4740/7398 rekordów, 1170 s, ETA 656 s
+2026-11-20 15:17:24,188 INFO eval_tokens: 1590/2466 pozycji, 4770/7398 rekordów, 1177 s, ETA 649 s
+2026-11-20 15:17:31,525 INFO eval_tokens: 1600/2466 pozycji, 4800/7398 rekordów, 1185 s, ETA 641 s
+2026-11-20 15:17:38,893 INFO eval_tokens: 1610/2466 pozycji, 4830/7398 rekordów, 1192 s, ETA 634 s
+2026-11-20 15:17:46,264 INFO eval_tokens: 1620/2466 pozycji, 4860/7398 rekordów, 1200 s, ETA 626 s
+2026-11-20 15:17:53,665 INFO eval_tokens: 1630/2466 pozycji, 4890/7398 rekordów, 1207 s, ETA 619 s
+2026-11-20 15:18:01,053 INFO eval_tokens: 1640/2466 pozycji, 4920/7398 rekordów, 1214 s, ETA 612 s
+2026-11-20 15:18:08,463 INFO eval_tokens: 1650/2466 pozycji, 4950/7398 rekordów, 1222 s, ETA 604 s
+2026-11-20 15:18:15,861 INFO eval_tokens: 1660/2466 pozycji, 4980/7398 rekordów, 1229 s, ETA 597 s
+2026-11-20 15:18:23,271 INFO eval_tokens: 1670/2466 pozycji, 5010/7398 rekordów, 1237 s, ETA 589 s
+2026-11-20 15:18:30,641 INFO eval_tokens: 1680/2466 pozycji, 5040/7398 rekordów, 1244 s, ETA 582 s
+2026-11-20 15:18:37,997 INFO eval_tokens: 1690/2466 pozycji, 5070/7398 rekordów, 1251 s, ETA 575 s
+2026-11-20 15:18:45,392 INFO eval_tokens: 1700/2466 pozycji, 5100/7398 rekordów, 1259 s, ETA 567 s
+2026-11-20 15:18:52,773 INFO eval_tokens: 1710/2466 pozycji, 5130/7398 rekordów, 1266 s, ETA 560 s
+2026-11-20 15:19:00,157 INFO eval_tokens: 1720/2466 pozycji, 5160/7398 rekordów, 1273 s, ETA 552 s
+2026-11-20 15:19:07,564 INFO eval_tokens: 1730/2466 pozycji, 5190/7398 rekordów, 1281 s, ETA 545 s
+2026-11-20 15:19:14,977 INFO eval_tokens: 1740/2466 pozycji, 5220/7398 rekordów, 1288 s, ETA 538 s
+2026-11-20 15:19:22,400 INFO eval_tokens: 1750/2466 pozycji, 5250/7398 rekordów, 1296 s, ETA 530 s
+2026-11-20 15:19:29,792 INFO eval_tokens: 1760/2466 pozycji, 5280/7398 rekordów, 1303 s, ETA 523 s
+2026-11-20 15:19:37,197 INFO eval_tokens: 1770/2466 pozycji, 5310/7398 rekordów, 1310 s, ETA 515 s
+2026-11-20 15:19:44,607 INFO eval_tokens: 1780/2466 pozycji, 5340/7398 rekordów, 1318 s, ETA 508 s
+2026-11-20 15:19:52,096 INFO eval_tokens: 1790/2466 pozycji, 5370/7398 rekordów, 1325 s, ETA 501 s
+2026-11-20 15:19:59,543 INFO eval_tokens: 1800/2466 pozycji, 5400/7398 rekordów, 1333 s, ETA 493 s
+2026-11-20 15:20:06,978 INFO eval_tokens: 1810/2466 pozycji, 5430/7398 rekordów, 1340 s, ETA 486 s
+2026-11-20 15:20:14,387 INFO eval_tokens: 1820/2466 pozycji, 5460/7398 rekordów, 1348 s, ETA 478 s
+2026-11-20 15:20:21,804 INFO eval_tokens: 1830/2466 pozycji, 5490/7398 rekordów, 1355 s, ETA 471 s
+2026-11-20 15:20:29,233 INFO eval_tokens: 1840/2466 pozycji, 5520/7398 rekordów, 1363 s, ETA 464 s
+2026-11-20 15:20:36,661 INFO eval_tokens: 1850/2466 pozycji, 5550/7398 rekordów, 1370 s, ETA 456 s
+2026-11-20 15:20:44,092 INFO eval_tokens: 1860/2466 pozycji, 5580/7398 rekordów, 1377 s, ETA 449 s
+2026-11-20 15:20:51,550 INFO eval_tokens: 1870/2466 pozycji, 5610/7398 rekordów, 1385 s, ETA 441 s
+2026-11-20 15:20:58,998 INFO eval_tokens: 1880/2466 pozycji, 5640/7398 rekordów, 1392 s, ETA 434 s
+2026-11-20 15:21:06,464 INFO eval_tokens: 1890/2466 pozycji, 5670/7398 rekordów, 1400 s, ETA 427 s
+2026-11-20 15:21:13,928 INFO eval_tokens: 1900/2466 pozycji, 5700/7398 rekordów, 1407 s, ETA 419 s
+2026-11-20 15:21:21,356 INFO eval_tokens: 1910/2466 pozycji, 5730/7398 rekordów, 1415 s, ETA 412 s
+2026-11-20 15:21:28,850 INFO eval_tokens: 1920/2466 pozycji, 5760/7398 rekordów, 1422 s, ETA 404 s
+2026-11-20 15:21:36,311 INFO eval_tokens: 1930/2466 pozycji, 5790/7398 rekordów, 1430 s, ETA 397 s
+2026-11-20 15:21:43,714 INFO eval_tokens: 1940/2466 pozycji, 5820/7398 rekordów, 1437 s, ETA 390 s
+2026-11-20 15:21:51,147 INFO eval_tokens: 1950/2466 pozycji, 5850/7398 rekordów, 1444 s, ETA 382 s
+2026-11-20 15:21:58,585 INFO eval_tokens: 1960/2466 pozycji, 5880/7398 rekordów, 1452 s, ETA 375 s
+2026-11-20 15:22:06,029 INFO eval_tokens: 1970/2466 pozycji, 5910/7398 rekordów, 1459 s, ETA 367 s
+2026-11-20 15:22:13,481 INFO eval_tokens: 1980/2466 pozycji, 5940/7398 rekordów, 1467 s, ETA 360 s
+2026-11-20 15:22:20,929 INFO eval_tokens: 1990/2466 pozycji, 5970/7398 rekordów, 1474 s, ETA 353 s
+2026-11-20 15:22:28,368 INFO eval_tokens: 2000/2466 pozycji, 6000/7398 rekordów, 1482 s, ETA 345 s
+2026-11-20 15:22:35,841 INFO eval_tokens: 2010/2466 pozycji, 6030/7398 rekordów, 1489 s, ETA 338 s
+2026-11-20 15:22:43,320 INFO eval_tokens: 2020/2466 pozycji, 6060/7398 rekordów, 1497 s, ETA 330 s
+2026-11-20 15:22:50,807 INFO eval_tokens: 2030/2466 pozycji, 6090/7398 rekordów, 1504 s, ETA 323 s
+2026-11-20 15:22:58,293 INFO eval_tokens: 2040/2466 pozycji, 6120/7398 rekordów, 1512 s, ETA 316 s
+2026-11-20 15:23:05,806 INFO eval_tokens: 2050/2466 pozycji, 6150/7398 rekordów, 1519 s, ETA 308 s
+2026-11-20 15:23:13,317 INFO eval_tokens: 2060/2466 pozycji, 6180/7398 rekordów, 1527 s, ETA 301 s
+2026-11-20 15:23:20,850 INFO eval_tokens: 2070/2466 pozycji, 6210/7398 rekordów, 1534 s, ETA 293 s
+2026-11-20 15:23:28,381 INFO eval_tokens: 2080/2466 pozycji, 6240/7398 rekordów, 1542 s, ETA 286 s
+2026-11-20 15:23:35,874 INFO eval_tokens: 2090/2466 pozycji, 6270/7398 rekordów, 1549 s, ETA 279 s
+2026-11-20 15:23:43,370 INFO eval_tokens: 2100/2466 pozycji, 6300/7398 rekordów, 1557 s, ETA 271 s
+2026-11-20 15:23:50,879 INFO eval_tokens: 2110/2466 pozycji, 6330/7398 rekordów, 1564 s, ETA 264 s
+2026-11-20 15:23:58,354 INFO eval_tokens: 2120/2466 pozycji, 6360/7398 rekordów, 1572 s, ETA 257 s
+2026-11-20 15:24:05,824 INFO eval_tokens: 2130/2466 pozycji, 6390/7398 rekordów, 1579 s, ETA 249 s
+2026-11-20 15:24:13,309 INFO eval_tokens: 2140/2466 pozycji, 6420/7398 rekordów, 1587 s, ETA 242 s
+2026-11-20 15:24:20,778 INFO eval_tokens: 2150/2466 pozycji, 6450/7398 rekordów, 1594 s, ETA 234 s
+2026-11-20 15:24:28,266 INFO eval_tokens: 2160/2466 pozycji, 6480/7398 rekordów, 1602 s, ETA 227 s
+2026-11-20 15:24:35,801 INFO eval_tokens: 2170/2466 pozycji, 6510/7398 rekordów, 1609 s, ETA 219 s
+2026-11-20 15:24:43,311 INFO eval_tokens: 2180/2466 pozycji, 6540/7398 rekordów, 1617 s, ETA 212 s
+2026-11-20 15:24:50,829 INFO eval_tokens: 2190/2466 pozycji, 6570/7398 rekordów, 1624 s, ETA 205 s
+2026-11-20 15:24:58,429 INFO eval_tokens: 2200/2466 pozycji, 6600/7398 rekordów, 1632 s, ETA 197 s
+2026-11-20 15:25:05,943 INFO eval_tokens: 2210/2466 pozycji, 6630/7398 rekordów, 1639 s, ETA 190 s
+2026-11-20 15:25:13,458 INFO eval_tokens: 2220/2466 pozycji, 6660/7398 rekordów, 1647 s, ETA 182 s
+2026-11-20 15:25:20,984 INFO eval_tokens: 2230/2466 pozycji, 6690/7398 rekordów, 1654 s, ETA 175 s
+2026-11-20 15:25:28,482 INFO eval_tokens: 2240/2466 pozycji, 6720/7398 rekordów, 1662 s, ETA 168 s
+2026-11-20 15:25:35,977 INFO eval_tokens: 2250/2466 pozycji, 6750/7398 rekordów, 1669 s, ETA 160 s
+2026-11-20 15:25:43,442 INFO eval_tokens: 2260/2466 pozycji, 6780/7398 rekordów, 1677 s, ETA 153 s
+2026-11-20 15:25:50,941 INFO eval_tokens: 2270/2466 pozycji, 6810/7398 rekordów, 1684 s, ETA 145 s
+2026-11-20 15:25:58,425 INFO eval_tokens: 2280/2466 pozycji, 6840/7398 rekordów, 1692 s, ETA 138 s
+2026-11-20 15:26:05,996 INFO eval_tokens: 2290/2466 pozycji, 6870/7398 rekordów, 1699 s, ETA 131 s
+2026-11-20 15:26:13,545 INFO eval_tokens: 2300/2466 pozycji, 6900/7398 rekordów, 1707 s, ETA 123 s
+2026-11-20 15:26:21,041 INFO eval_tokens: 2310/2466 pozycji, 6930/7398 rekordów, 1714 s, ETA 116 s
+2026-11-20 15:26:28,644 INFO eval_tokens: 2320/2466 pozycji, 6960/7398 rekordów, 1722 s, ETA 108 s
+2026-11-20 15:26:36,185 INFO eval_tokens: 2330/2466 pozycji, 6990/7398 rekordów, 1729 s, ETA 101 s
+2026-11-20 15:26:43,819 INFO eval_tokens: 2340/2466 pozycji, 7020/7398 rekordów, 1737 s, ETA 94 s
+2026-11-20 15:26:51,347 INFO eval_tokens: 2350/2466 pozycji, 7050/7398 rekordów, 1745 s, ETA 86 s
+2026-11-20 15:26:58,897 INFO eval_tokens: 2360/2466 pozycji, 7080/7398 rekordów, 1752 s, ETA 79 s
+2026-11-20 15:27:06,427 INFO eval_tokens: 2370/2466 pozycji, 7110/7398 rekordów, 1760 s, ETA 71 s
+2026-11-20 15:27:13,929 INFO eval_tokens: 2380/2466 pozycji, 7140/7398 rekordów, 1767 s, ETA 64 s
+2026-11-20 15:27:21,476 INFO eval_tokens: 2390/2466 pozycji, 7170/7398 rekordów, 1775 s, ETA 56 s
+2026-11-20 15:27:29,037 INFO eval_tokens: 2400/2466 pozycji, 7200/7398 rekordów, 1782 s, ETA 49 s
+2026-11-20 15:27:36,540 INFO eval_tokens: 2410/2466 pozycji, 7230/7398 rekordów, 1790 s, ETA 42 s
+2026-11-20 15:27:44,119 INFO eval_tokens: 2420/2466 pozycji, 7260/7398 rekordów, 1797 s, ETA 34 s
+2026-11-20 15:27:51,691 INFO eval_tokens: 2430/2466 pozycji, 7290/7398 rekordów, 1805 s, ETA 27 s
+2026-11-20 15:27:59,265 INFO eval_tokens: 2440/2466 pozycji, 7320/7398 rekordów, 1813 s, ETA 19 s
+2026-11-20 15:28:06,866 INFO eval_tokens: 2450/2466 pozycji, 7350/7398 rekordów, 1820 s, ETA 12 s
+2026-11-20 15:28:14,427 INFO eval_tokens: 2460/2466 pozycji, 7380/7398 rekordów, 1828 s, ETA 4 s
+2026-11-20 15:28:18,958 INFO eval_tokens: 2466/2466 pozycji, 7398/7398 rekordów, 1832 s, ETA 0 s
+2026-11-20 15:28:18,958 INFO eval_tokens: Pomiar: 1832 s
+2026-11-20 15:28:37,991 INFO eval_tokens: Wyniki: results/beam_tokens/paths_gemma_large
+# Podpowiedzi na 3 tokeny do przodu: beam po całości vs greedy
+
+- model `google_gemma-4-E4B-it-Q4_K_M.gguf`, git `e4449ef4d6` (brudne drzewo)
+- zbiór `results/beam_tokens/testset_podcast_large.jsonl` ({'first_word': 0, 'later': 1000, 'mid_word': 1000} pozycji na typ), c_len = 250; cel = następne 3 kanoniczne tokeny tekstu
+- wynik ścieżki = suma log-probów; ścieżki o tym samym tekście połączone; pasek = 5 podpowiedzi
+- Δ względem `w1_k1_p1` (greedy) na tych samych pozycjach: CI 95% z bootstrapu klastrowanego po słowie, p z McNemara z korektą Holma (osobno dla Hit@1 i Hit@N). `**` = istotne (p_Holm < 0,05).
+- tokeny / znaki = ile tokenów / znaków podpowiedzi zgadza się z tekstem od początku (góra listy / najlepsza z całej listy). „bł. szuk.” = udział chybień, w których model woli cel od znalezionej górnej ścieżki o > 0.2 nata (szerszy beam mógłby pomóc; margines na szum numeryczny batcha GPU).
+
+## Łącznie
+
+| wariant | N | Hit@1 | CI 95% | Δ Hit@1 [CI] | tylko ta / tylko greedy | p_Holm | Hit@5 | Δ Hit@5 (p_Holm) | MRR | tokeny góra / najl. | Δ tokenów góry [CI] | znaki góra / najl. / cel | #podp. | bł. szuk. | lat. mean / p95 |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| `w1_k1_p1` | 2466 | 0.088 | [0.076, 0.099] | — | — | — | 0.088 | — | 0.088 | 0.73 / 0.73 | — | 2.9 / 2.9 / 11.0 | 1.00 | 1% | 159 / 162 |
+| `greedy_top5` | 2466 | 0.087 | [0.076, 0.098] | -0.000 [-0.002, +0.001] | 1 / 2 | 1.000 | 0.119 | +0.032 ** (0.000) | 0.100 | 0.73 / 0.99 | -0.00 [-0.00, +0.00] | 2.9 / 3.9 / 11.0 | 4.99 | 1% | 204 / 207 |
+| `w5_k5_p1` | 2466 | 0.094 | [0.083, 0.106] | +0.007 ** [+0.002, +0.011] | 24 / 7 | 0.007 | 0.180 | +0.092 ** (0.000) | 0.127 | 0.73 / 1.01 | +0.00 [-0.01, +0.02] | 2.9 / 4.0 / 11.0 | 5.00 | 0% | 206 / 210 |
+
+## początek zdania (`first_word`)
+
+| wariant | N | Hit@1 | CI 95% | Δ Hit@1 [CI] | tylko ta / tylko greedy | p_Holm | Hit@5 | Δ Hit@5 (p_Holm) | MRR | tokeny góra / najl. | Δ tokenów góry [CI] | znaki góra / najl. / cel | #podp. | bł. szuk. | lat. mean / p95 |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| `w1_k1_p1` | 466 | 0.002 | [0.000, 0.006] | — | — | — | 0.002 | — | 0.002 | 0.07 / 0.07 | — | 0.8 / 0.8 / 10.8 | 1.00 | 0% | 158 / 161 |
+| `greedy_top5` | 466 | 0.002 | [0.000, 0.006] | +0.000 [+0.000, +0.000] | 0 / 0 | 1.000 | 0.006 | +0.004 (1.000) | 0.003 | 0.07 / 0.22 | +0.00 [+0.00, +0.00] | 0.8 / 1.9 / 10.8 | 5.00 | 0% | 202 / 204 |
+| `w5_k5_p1` | 466 | 0.000 | [0.000, 0.000] | -0.002 [-0.006, +0.000] | 0 / 1 | 1.000 | 0.006 | +0.004 (1.000) | 0.002 | 0.06 / 0.14 | -0.01 [-0.03, +0.02] | 0.8 / 1.4 / 10.8 | 5.00 | 0% | 205 / 208 |
+
+## kolejne słowo (`later`)
+
+| wariant | N | Hit@1 | CI 95% | Δ Hit@1 [CI] | tylko ta / tylko greedy | p_Holm | Hit@5 | Δ Hit@5 (p_Holm) | MRR | tokeny góra / najl. | Δ tokenów góry [CI] | znaki góra / najl. / cel | #podp. | bł. szuk. | lat. mean / p95 |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| `w1_k1_p1` | 1000 | 0.064 | [0.049, 0.080] | — | — | — | 0.064 | — | 0.064 | 0.39 / 0.39 | — | 2.4 / 2.4 / 12.3 | 1.00 | 1% | 159 / 162 |
+| `greedy_top5` | 1000 | 0.064 | [0.049, 0.080] | +0.000 [+0.000, +0.000] | 0 / 0 | 1.000 | 0.123 | +0.059 ** (0.000) | 0.086 | 0.39 / 0.76 | +0.00 [+0.00, +0.00] | 2.4 / 4.0 / 12.3 | 5.00 | 1% | 203 / 205 |
+| `w5_k5_p1` | 1000 | 0.071 | [0.056, 0.087] | +0.007 [+0.000, +0.014] | 10 / 3 | 0.185 | 0.144 | +0.080 ** (0.000) | 0.099 | 0.40 / 0.69 | +0.01 [-0.02, +0.03] | 2.4 / 3.6 / 12.3 | 5.00 | 0% | 206 / 209 |
+
+## w połowie słowa (po tokenie) (`mid_word`)
+
+| wariant | N | Hit@1 | CI 95% | Δ Hit@1 [CI] | tylko ta / tylko greedy | p_Holm | Hit@5 | Δ Hit@5 (p_Holm) | MRR | tokeny góra / najl. | Δ tokenów góry [CI] | znaki góra / najl. / cel | #podp. | bł. szuk. | lat. mean / p95 |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| `w1_k1_p1` | 1000 | 0.151 | [0.128, 0.173] | — | — | — | 0.151 | — | 0.151 | 1.37 / 1.37 | — | 4.4 / 4.4 / 9.8 | 1.00 | 1% | 158 / 163 |
+| `greedy_top5` | 1000 | 0.150 | [0.128, 0.172] | -0.001 [-0.004, +0.002] | 1 / 2 | 1.000 | 0.168 | +0.017 ** (0.000) | 0.158 | 1.37 / 1.57 | -0.00 [-0.01, +0.00] | 4.4 / 4.9 / 9.8 | 4.98 | 2% | 205 / 207 |
+| `w5_k5_p1` | 1000 | 0.162 | [0.139, 0.185] | +0.011 ** [+0.003, +0.019] | 14 / 3 | 0.025 | 0.296 | +0.145 ** (0.000) | 0.212 | 1.38 / 1.73 | +0.01 [-0.02, +0.03] | 4.4 / 5.6 / 9.8 | 4.99 | 0% | 208 / 211 |
+
+## Trafienia na każdej pozycji listy (łącznie)
+
+| wariant | poz. 1 | poz. 2 | poz. 3 | poz. 4 | poz. 5 |
+|---|---|---|---|---|---|
+| `w1_k1_p1` | 0.088 | 0.000 | 0.000 | 0.000 | 0.000 |
+| `greedy_top5` | 0.087 | 0.015 | 0.008 | 0.006 | 0.003 |
+| `w5_k5_p1` | 0.094 | 0.039 | 0.023 | 0.013 | 0.011 |
+

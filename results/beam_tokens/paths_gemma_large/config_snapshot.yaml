@@ -1,0 +1,86 @@
+# Beam search na granicy tokenu (bez G&V) + krzywa kontekstu 0–250. Gemma 4 E4B, podcast.
+#
+# Prefiks to zawsze wycinek kanonicznej tokenizacji CAŁEGO dokumentu, więc kursor nigdy nie
+# stoi w środku tokenu i cofnięcie do początku słowa (G&V) nie jest potrzebne.
+#
+#   python3 eval_tokens.py --mode testset          # zamroź zbiór pozycji (raz)
+#   python3 eval_tokens.py --mode sweep --smoke    # sanity + kontrole równoważności
+#   python3 eval_tokens.py --mode sweep            # 15 konfiguracji, wznawialny
+#   python3 eval_tokens.py --mode curve            # krzywa c_len 0–250
+#   python3 eval_tokens.py --mode sweep --configs bw8_k16_p0.9   # run 16 (dopisuje się)
+
+model:
+  gguf: models/google_gemma-4-E4B-it-Q4_K_M.gguf
+  # Wartości UI (`beam_search.N_CTX`/`N_BATCH`): prefiks ≤ ~270 tokenów mieści się z zapasem.
+  n_ctx: 2048
+  n_batch: 512
+
+corpus:
+  dir: corpus_context_podcast_pl
+  glob: podcast_clean.txt
+
+testset:
+  path: results/beam_tokens/testset_podcast.jsonl
+  seed: 1
+  per_segment: 200      # first_word / later / mid_word
+  min_ctx: 250          # słowo zaczyna się co najmniej tyle tokenów od początku dokumentu
+  min_word_len: 2
+
+sweep:
+  c_len: 250            # punkt pracy UI (ogon ~1000 znaków)
+  out: results/beam_tokens/sweep_gemma
+  baseline: bw5_k16_p1
+  # Jeden czynnik naraz wokół konfiguracji UI. Nazwa = bw<beam_width>_k<top_k>_p<top_p>.
+  configs:
+    - bw5_k16_p1        # 1  baseline = UI
+    - bw1_k16_p1        # 2  beam width (bw=1 = czysty greedy)
+    - bw2_k16_p1        # 3
+    - bw3_k16_p1        # 4
+    - bw8_k16_p1        # 5
+    - bw12_k16_p1       # 6
+    - bw5_k2_p1         # 7  top_k
+    - bw5_k3_p1         # 8
+    - bw5_k5_p1         # 9
+    - bw5_k8_p1         # 10
+    - bw5_k16_p0.5      # 11 top_p
+    - bw5_k16_p0.7      # 12
+    - bw5_k16_p0.8      # 13
+    - bw5_k16_p0.9      # 14
+    - bw5_k16_p0.95     # 15
+
+curve:
+  per_segment: 100      # pierwsze 100 pozycji każdego typu z zamrożonego zbioru
+  config: bw5_k16_p1
+  c_lens: [0, 5, 10, 20, 35, 50, 75, 100, 150, 200, 250]
+  out: results/beam_tokens/curve_gemma
+
+run:
+  bootstrap_iters: 2000
+  ci_alpha: 0.05
+  lemma_model: pl_core_news_sm
+
+paths:
+  # Pasek wyboru na `depth` tokenów do przodu. Wynik ścieżki = suma log-probów (całość, bez
+  # normalizacji), ścieżka greedy chroniona, ścieżki o tym samym tekście połączone.
+  # Wariant: w<szerokość>_k<top_k>_p<top_p> albo greedy_top<N>.
+  c_len: 250
+  depth: 3
+  n: 5                  # pozycji paska; oceniana jest każda zwrócona podpowiedź
+  out: results/beam_tokens/paths_gemma
+  baseline: w1_k1_p1    # greedy
+  configs:
+    - w1_k1_p1          # 1  greedy (1 podpowiedź)
+    - greedy_top5       # 2  top-5 pierwszych tokenów dokończonych zachłannie
+    - w2_k2_p1          # 3  szerokość (top_k = szerokość)
+    - w3_k3_p1          # 4
+    - w5_k5_p1          # 5
+    - w8_k8_p1          # 6
+    - w16_k16_p1        # 7
+    - w32_k32_p1        # 8
+    - w5_k2_p1          # 9  top_k przy szerokości 5
+    - w5_k3_p1          # 10
+    - w5_k16_p1         # 11 (k > szerokość: oczekiwane bez zmian)
+    - w5_k16_p0.5       # 12 top_p
+    - w5_k16_p0.8       # 13
+    - w5_k16_p0.9       # 14
+    - w5_k16_p0.95      # 15
