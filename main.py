@@ -1,7 +1,9 @@
 """AI Dasher: pisanie drzewem tokenów (sterowanie jak w Dasherze) i paskami dwell.
 
-Od góry: tekst z polem czułości myszy, pasek słów, pasmo z drzewem tokenów, pasek liter.
+Od góry: tekst z polem czułości myszy, pasek podpowiedzi (beam na 3 tokeny, pod każdą P modelu),
+pasmo z drzewem tokenów, pasek liter.
 Tu jest tylko rysowanie i spinanie; logika siedzi w modułach bez tkintera.
+Po zamknięciu okna na stdout trafiają metryki sesji (WPM, KSS i inne, zob. metrics.py).
 
     python3 main.py                  # model z katalogu models/ obok main.py
     python3 main.py --gguf plik.gguf
@@ -21,6 +23,7 @@ from pathlib import Path
 from bars import LETTERS, BarItem, item_at, item_span, letter_items, word_items
 from beam_search import N_SUGGESTIONS, BeamSearch
 from dwell import DwellTracker
+from metrics import TREE, WORDS, SessionMetrics
 from segments import (
     SOURCE_LETTER,
     SOURCE_TOKEN,
@@ -36,7 +39,6 @@ from steering import DEADZONE_PX, SteerGate, Steering, View, ViewEase, in_deadzo
 from token_tree import (
     EMPTY_ROOT,
     box_x,
-    chain_origin,
     focus_path,
     insert_text,
     layout,
@@ -58,6 +60,7 @@ WORD_BAR_H = LETTER_BAR_H = 70
 WORD_DWELL_MS = 700.0
 LETTER_DWELL_MS = 1050.0  # litery wolniej: mniej przypadkowych liter
 HOVER_SCALE = 1.2         # powiększenie elementu paska pod kursorem
+NOTE_SCALE = 0.7          # podpis pod etykietą (P podpowiedzi) względem jej czcionki
 CROSS_X = 0.2             # celownik jako ułamek szerokości pasma (klasyczny Dasher)
 VIGNETTE = 0.6            # siła winiety przy pełnej prędkości
 GRID_SPACING = 80         # stała siatka odniesienia [px]
@@ -287,9 +290,16 @@ class BarView:
 
     def _label(self, item: BarItem, cx: float, cy: float, max_w: float, px: int, tag: str) -> None:
         """Etykieta wyśrodkowana w slocie: przygaszony wpisany początek słowa + dokończenie;
-        za długa jest skracana z „…”."""
+        za długa jest skracana z „…”. Z podpisem (`note`) para etykieta + podpis jest
+        wyśrodkowana razem, podpis mniejszy i przygaszony pod etykietą."""
         app = self.app
         font = app.font(px)
+        if item.note:
+            note_px = max(8, round(px * NOTE_SCALE))
+            gap = 3
+            self.canvas.create_text(cx, cy + (px + gap) / 2, text=item.note, font=app.font(note_px),
+                                    fill=THEME["word_dim"], tags=tag)
+            cy -= (note_px + gap) / 2
         whole = item.dim_prefix + item.label
         if app.measure(whole, px) > max_w:
             self.canvas.create_text(cx, cy, text=app.fit_label(whole, px, max_w), font=font,
@@ -379,6 +389,7 @@ class AIDasher:
         self.root = root
         root.title("AI Dasher")
         self.worker = UIWorker(backend)
+        self.metrics = SessionMetrics(time.perf_counter())
         self.speed_scale = SENSITIVITY_STEP * SENSITIVITY_DEFAULT
 
         # Stan tekstu i drzewa. `version` rośnie z każdą zmianą tekstu; wynik dla innej
@@ -386,11 +397,9 @@ class AIDasher:
         self.version = 0
         self.history = History()
         self.typed_text = ""
-        # Kontekst modelu, do którego dopisują się tokeny korzenia drzewa: tokeny całego tekstu,
-        # a po cofnięciu do początku słowa (`root_healed`) tokeny SPRZED bieżącego słowa.
+        # Kontekst modelu, do którego dopisują się tokeny korzenia drzewa: tokeny całego tekstu.
         # None = tekst z paska, tokenizacja od nowa.
         self.prefix_ids: list[int] | None = None
-        self.root_healed = False
         self.tree_root = EMPTY_ROOT
         self.tree_done = False
         self.boxes = []
@@ -496,13 +505,13 @@ class AIDasher:
         if not need_tree and not need_words:
             self.worker.cancel(self.version)
             return
-        # Po cofnięciu `prefix_ids` nie opisuje całego tekstu: worker cofa się jeszcze raz.
-        known = self.prefix_ids is not None and not self.root_healed
         self.worker.request(Request(
             version=self.version, text=self.typed_text,
-            token_ids=tuple(self.prefix_ids) if known else None,
+            token_ids=tuple(self.prefix_ids) if self.prefix_ids is not None else None,
             root=self.tree_root, need_tree=need_tree, need_words=need_words,
         ))
+        if self.typed_text:  # pusty tekst nic nie liczy (a pierwsze żądanie czeka na rozgrzewkę)
+            self.metrics.request_sent(self.version, time.perf_counter())
 
     def text_changed(self) -> None:
         """Tekst się zmienił: nowa wersja (stare wyniki przepadają), przerysowanie panelu
@@ -515,19 +524,16 @@ class AIDasher:
         self.request_missing()
 
     def refresh_word_items(self) -> None:
-        """Sloty paska słów z bieżących sugestii (puste, dopóki ich nie ma)."""
+        """Sloty paska podpowiedzi z bieżących wyników beamu (puste, dopóki ich nie ma)."""
         items = word_items(self.typed_text, self.suggestions, self.version) if self.words_ready else []
         self.word_bar.set_items(items)
 
     def set_tree(self, root, now: float) -> None:
-        """Ustaw drzewo i jego boksy; boks sklejony z łańcucha przejmuje czas narodzin boksu,
-        z którego powstał."""
+        """Ustaw drzewo i jego boksy; nowe boksy dostają czas narodzin `now`."""
         self.tree_root = root
         self.boxes = layout(root)
         for box in self.boxes:
-            if box.path not in self.born:
-                origin = chain_origin(box.path, self.born)
-                self.born[box.path] = self.born[origin] if origin is not None else now
+            self.born.setdefault(box.path, now)
 
     def snapshot(self, segment: Segment, low: float | None = None, high: float | None = None) -> HistoryEntry:
         """Wpis historii: segment + stan sprzed jego wstawienia; `low`/`high` = granice
@@ -536,36 +542,36 @@ class AIDasher:
             segment=segment,
             token_ids=tuple(self.prefix_ids) if self.prefix_ids is not None else None,
             root=self.tree_root, suggestions=self.suggestions, words_ready=self.words_ready,
-            el_low=low, el_high=high, tree_done=self.tree_done, healed=self.root_healed,
+            el_low=low, el_high=high, tree_done=self.tree_done,
         )
 
     def select_box(self, box, now: float) -> None:
         """Wejście w boks: poddrzewo staje się drzewem, a boksy zostają tam, gdzie były."""
-        inserted = insert_text(self.typed_text, box.node.text)
-        self.history.push(self.snapshot(Segment(inserted, SOURCE_TOKEN), box.low, box.high))
+        segment = Segment(insert_text(self.typed_text, box.node.text), SOURCE_TOKEN)
+        self.history.push(self.snapshot(segment, box.low, box.high))
+        self.metrics.inserted(segment, now)
         self.ghosts.clear()
         self.view.low, self.view.high = reroot_view(self.view.low, self.view.high, box)
         self.born = rebase_born(self.born, box.node.key)
-        # Po dopisaniu tokenów boksu `prefix_ids` znów opisuje cały tekst.
         self.prefix_ids = (self.prefix_ids or []) + list(box.node.tokens)
-        self.root_healed = False
         self.set_tree(box.node, now)
         self.root_since = now
         self.tree_done = False
-        # Stare sugestie dotyczą poprzedniego prefiksu: czyścimy do czasu wyniku.
+        # Stare podpowiedzi dotyczą poprzedniego prefiksu: czyścimy do czasu wyniku.
         self.suggestions, self.words_ready = (), False
         self.text_changed()
 
     def select_from_bar(self, item: BarItem, source: str, now: float) -> None:
-        """Wstaw element paska (litera albo słowo): drzewo i tokenizacja od nowa, widok wraca
-        na całe pasmo."""
-        self.history.push(self.snapshot(Segment(item.insert, source)))
+        """Wstaw element paska (litera albo podpowiedź): drzewo i tokenizacja od nowa, widok
+        wraca na całe pasmo."""
+        segment = Segment(item.insert, source)
+        self.history.push(self.snapshot(segment))
+        self.metrics.inserted(segment, now)
         self.ghosts.clear()
         self.born = {}
         self.set_tree(EMPTY_ROOT, now)
         self.tree_done = False
         self.prefix_ids = None
-        self.root_healed = False
         self.suggestions, self.words_ready = (), False
         self.view_ease = ViewEase(self.view, now)
         self.steering.stop()
@@ -577,9 +583,9 @@ class AIDasher:
         entry = self.history.undo()
         if entry is None:
             return
+        self.metrics.removed(entry.segment, now)
         self.ghosts.add(entry.segment.text, now)
         self.prefix_ids = list(entry.token_ids) if entry.token_ids is not None else None
-        self.root_healed = entry.healed
         self.suggestions, self.words_ready = entry.suggestions, entry.words_ready
         self.born = {}
         self.set_tree(entry.root, now)
@@ -594,10 +600,9 @@ class AIDasher:
         self.text_changed()
 
     def apply_tree(self, msg: TreeReady, now: float) -> None:
-        """Przyjmij drzewo od workera razem z kontekstem jego korzenia (`token_ids`, `healed`)."""
+        """Przyjmij drzewo od workera razem z kontekstem jego korzenia (`token_ids`)."""
         was_empty = not self.tree_root.children
         self.prefix_ids = list(msg.token_ids)
-        self.root_healed = msg.healed
         self.set_tree(msg.root, now)
         self.tree_done = msg.final
         # Widok stoi głęboko w pustym paśmie: nowe boksy pojawiłyby się pod nim i wybrały same.
@@ -605,7 +610,7 @@ class AIDasher:
             self.view_ease = ViewEase(self.view, now)
 
     def apply_words(self, msg: WordsReady) -> None:
-        """Przyjmij sugestie słów od workera i pokaż je w pasku."""
+        """Przyjmij podpowiedzi od workera i pokaż je w pasku."""
         self.suggestions, self.words_ready = msg.suggestions, True
         self.refresh_word_items()
 
@@ -655,7 +660,7 @@ class AIDasher:
     def check_selection(self, now: float) -> None:
         """Wybierz boks pierwszej kolumny, gdy widok w całości mieści się w nim i boks jest
         na ekranie co najmniej `BOX_SELECTABLE_S`."""
-        # Widok w pełnym paśmie nigdy nie jest wejściem w boks (jedyne dziecko korzenia).
+        # Widok na całe pasmo (lub szerszy) nigdy nie jest wejściem w boks.
         if self.view.range >= 1.0:
             return
         for box in self.boxes:
@@ -835,10 +840,13 @@ class AIDasher:
         start = time.perf_counter()
         dt = start - self.frame_t
         self.frame_t = start
+        self.metrics.frames += 1
         for msg in self.worker.poll(self.version):
             if isinstance(msg, TreeReady):
+                self.metrics.result_received(TREE, msg.version, start)
                 self.apply_tree(msg, start)
             elif isinstance(msg, WordsReady):
+                self.metrics.result_received(WORDS, msg.version, start)
                 self.apply_words(msg)
         self.word_bar.step(start)
         self.letter_bar.step(start)
@@ -889,3 +897,4 @@ if __name__ == "__main__":
         app.root.mainloop()
     finally:
         app.worker.close()
+        print(app.metrics.report(app.history.segments, time.perf_counter()), flush=True)

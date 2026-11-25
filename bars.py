@@ -1,4 +1,4 @@
-"""Zawartość i geometria pasków dwell (słowa, litery), bez tkintera.
+"""Zawartość i geometria pasków dwell (podpowiedzi, litery), bez tkintera.
 
 Paski są statyczne: liczba slotów nie zależy od liczby sugestii, więc nic nie przeskakuje
 pod kursorem, gdy sugestii jest mniej niż slotów.
@@ -6,10 +6,12 @@ pod kursorem, gdy sugestii jest mniej niż slotów.
 
 from __future__ import annotations
 
+import math
+import re
 from dataclasses import dataclass
 from typing import Sequence
 
-from token_tree import ends_with_punct
+from token_tree import insert_text
 
 LETTERS = "aąbcćdeęfghijklłmnńoóprsśtuwvyzźż"
 SPECIALS = (" ", ".", ",", "!", "?")
@@ -22,6 +24,7 @@ class BarItem:
     label: str       # jasna część etykiety
     insert: str      # co trafia do tekstu
     dim_prefix: str = ""  # przygaszona część (już wpisany początek słowa)
+    note: str = ""        # mały podpis pod etykietą (P podpowiedzi według modelu)
 
 
 def letter_items() -> list[BarItem]:
@@ -32,25 +35,36 @@ def letter_items() -> list[BarItem]:
 
 
 def word_items(typed: str, suggestions: Sequence, version: int) -> list[BarItem]:
-    """Mid-word: etykieta = całe słowo, wstawiane samo dokończenie (+ spacja, gdy pełne).
+    """Podpowiedź (`beam_search.Suggestion`) = dalszy ciąg tekstu na kilka tokenów, wstawiany
+    jak boks z pasma (`insert_text`: wiodąca spacja nie dubluje wpisanej).
 
-    Po interpunkcji sugestia to następne słowo, więc trzeba dokleić wiodącą spację. Klucz
-    zawiera wersję tekstu: to samo słowo policzone dla innego tekstu to inna treść.
+    Gdy podpowiedź ciągnie bieżące słowo, etykieta zaczyna się od jego przygaszonego, już
+    wpisanego początku. Pod etykietą P podpowiedzi. Klucz zawiera wersję tekstu: ta sama
+    podpowiedź policzona dla innego tekstu to inna treść.
     """
-    after_punct = ends_with_punct(typed)
-    if after_punct or typed[-1:].isspace() or not typed:
-        typed_word, lead = "", " " if after_punct else ""
-    else:
-        typed_word, lead = typed.split(" ")[-1], ""
-    return [
-        BarItem(
+    m = re.search(r"\w+$", typed)
+    typed_word = m.group() if m else ""
+    items = []
+    for s in suggestions:
+        continues = bool(typed_word) and s.text[:1].isalnum()
+        items.append(BarItem(
             key=f"{version}:{s.text}",
-            label=s.text,
-            insert=lead + s.text + (" " if s.complete else ""),
-            dim_prefix=typed_word,
-        )
-        for s in suggestions
-    ]
+            label=s.text if continues else s.text.lstrip(),
+            insert=insert_text(typed, s.text),
+            dim_prefix=typed_word if continues else "",
+            note=format_prob(s.logprob),
+        ))
+    return items
+
+
+def format_prob(logprob: float) -> str:
+    """Prawdopodobieństwo jako procent z dwiema cyframi znaczącymi: „23 %”, „4,2 %”, „0,37 %”."""
+    pct = 100.0 * math.exp(logprob)
+    if pct >= 99.5:
+        return "100 %"
+    if pct < 0.01:
+        return "<0,01 %"
+    return f"{pct:.2g} %".replace(".", ",")
 
 
 def item_span(index: int, n_slots: int, width: float) -> tuple[float, float]:

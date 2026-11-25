@@ -43,8 +43,6 @@ class HistoryEntry:
     el_high: float | None = None
     # Czy drzewo było już policzone do końca; wtedy cofnięcie nic nie liczy od nowa.
     tree_done: bool = False
-    # `token_ids` to kontekst sprzed bieżącego słowa (cofnięcie G&V), nie tokeny całego tekstu.
-    healed: bool = False
 
 
 class History:

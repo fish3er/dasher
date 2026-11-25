@@ -2,11 +2,7 @@
 
 Kontekst llama nie jest thread-safe, więc wszystko idzie przez jeden wątek, który nie dotyka
 tkintera: pętla klatek odbiera wyniki przez `poll()`. Etapy, od najtańszego: pierwsza kolumna
-drzewa, reszta drzewa, sugestie słów; między nimi sprawdzamy, czy żądanie jest aktualne.
-
-Cofnięcie do początku słowa (G&V): gdy tekst nie ma tokenów z pasma i kończy się w środku słowa,
-kontekst modelu kończy się przed tym słowem. `TreeReady.healed` mówi wtedy UI, że `token_ids`
-to kontekst SPRZED słowa, a nie tokeny całego tekstu.
+drzewa, reszta drzewa, podpowiedzi paska; między nimi sprawdzamy, czy żądanie jest aktualne.
 """
 
 from __future__ import annotations
@@ -16,11 +12,9 @@ import queue
 import threading
 from dataclasses import dataclass
 
-from beam_search import LEVEL_MID_WORD, text_level
 from token_tree import (
-    DEFAULT_MAX_LEAVES,
+    DEFAULT_LIMITS,
     DEFAULT_TOP_P,
-    DEFAULT_WIDTHS,
     EMPTY_ROOT,
     MAX_DEPTH,
     TreeNode,
@@ -48,8 +42,7 @@ class TreeReady:
     version: int
     root: TreeNode
     token_ids: tuple[int, ...]
-    final: bool = True    # ostatni etap drzewa dla tego żądania
-    healed: bool = False  # token_ids = kontekst sprzed bieżącego słowa (cofnięcie G&V)
+    final: bool = True  # ostatni etap drzewa dla tego żądania
 
 
 @dataclass(frozen=True)
@@ -128,23 +121,14 @@ class UIWorker:
                 logger.exception("Liczenie nie powiodło się dla %r", req.text[-40:])
 
     def _process(self, req: Request) -> None:
-        """Policz etapy drzewa i sugestie słów dla żądania, publikując każdy etap osobno."""
+        """Policz etapy drzewa i podpowiedzi paska dla żądania, publikując każdy etap osobno."""
         backend = self._backend
-        tail = req.text[-MAX_PREFIX_CHARS:]
-        # Cofnięcie tylko dla tekstu bez tokenów z pasma: tokeny z pasma to własna tokenizacja
-        # modelu, więc cofanie nic by nie dało.
-        heal = None
-        if req.token_ids is None and text_level(req.text) == LEVEL_MID_WORD:
-            heal = backend.backoff_ids(tail)
-        typed = ""
-        if heal is not None:
-            ids, typed = heal
-        elif req.token_ids is not None:
+        if req.token_ids is not None:
             ids = list(req.token_ids)
             if len(ids) > MAX_PREFIX_TOKENS:
                 ids = ids[:1] + ids[-(MAX_PREFIX_TOKENS - 1):]  # BOS + ogon
         else:
-            ids = backend.prefix_ids(tail)[0]
+            ids = backend.prefix_ids(req.text[-MAX_PREFIX_CHARS:])
         after_whitespace = not req.text or req.text[-1].isspace()
         abort = lambda: self._superseded(req)
 
@@ -152,42 +136,28 @@ class UIWorker:
         # na całe pasmo wybrałby się przy pierwszym ruchu. Pierwszy wybór idzie z paska liter.
         if req.need_tree and req.text:
             def grow(root: TreeNode, upto_depth: int) -> TreeNode:
-                """Dolicz drzewo do głębokości `upto_depth` (z cofnięciem, gdy jest `typed`)."""
+                """Dolicz drzewo do głębokości `upto_depth`."""
                 return backend.extend_tree(
-                    ids, root, DEFAULT_WIDTHS, upto_depth, after_whitespace, DEFAULT_TOP_P,
-                    DEFAULT_MAX_LEAVES, typed=typed, should_abort=abort,
+                    ids, root, DEFAULT_LIMITS, upto_depth, after_whitespace, DEFAULT_TOP_P,
                 )
 
             root = req.root
-            fresh = not root.children
-            if fresh:
+            if not root.children:
                 root = grow(root, 1)
-                if typed and not root.children and not abort():
-                    # Żadna tokenizacja wpisanej części nie pasuje: zwykła ścieżka.
-                    heal, typed = None, ""
-                    ids = backend.prefix_ids(tail)[0]
-                    root = grow(root, 1)
-                self._publish_tree(req, root, ids, not root.children, heal is not None)
+                self._publish_tree(req, root, ids, not root.children)
                 if abort():
                     return
             if root.children:
                 root = grow(root, MAX_DEPTH)
-                self._publish_tree(req, root, ids, True, heal is not None)
+                self._publish_tree(req, root, ids, True)
                 if abort():
                     return
 
         if req.need_words:
-            suggestions: list = []
-            if req.text and typed:
-                suggestions = backend.suggest_backoff(ids, typed, abort)
-                if not suggestions and not abort():
-                    typed = ""
-                    ids = backend.prefix_ids(tail)[0]
-            if req.text and not typed:
-                suggestions = backend.suggest_tokens(ids, text_level(req.text), abort)
+            suggestions = backend.suggest(ids, after_whitespace, abort) if req.text else []
             if not abort():
                 self.results.put(WordsReady(req.version, tuple(suggestions)))
 
-    def _publish_tree(self, req: Request, root: TreeNode, ids: list[int], final: bool, healed: bool) -> None:
+    def _publish_tree(self, req: Request, root: TreeNode, ids: list[int], final: bool) -> None:
         """Wyślij do UI drzewo etapu razem z kontekstem jego korzenia."""
-        self.results.put(TreeReady(req.version, root, tuple(ids), final, healed))
+        self.results.put(TreeReady(req.version, root, tuple(ids), final))

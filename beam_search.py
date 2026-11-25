@@ -1,36 +1,31 @@
-"""Backend modelu Gemma 4 (GGUF): drzewo tokenów pasma i beam search paska słów.
+"""Backend modelu Gemma 4 (GGUF): beam search drzewa tokenów pasma i paska podpowiedzi.
 
-Prefiks jest dekodowany raz do `seq 0` KV-cache; każdy ogon (beam, węzeł drzewa, hipoteza
-cofnięcia) dostaje kopię prefiksu (`llama_memory_seq_cp`) i własne tokeny, a wszystkie ogony
-kroku idą jednym `llama_decode`. Importy `llama_cpp`/`numpy` są w metodach, żeby sam import
-modułu działał bez backendu.
+Prefiks jest dekodowany raz do `seq 0` KV-cache; każdy ogon (węzeł drzewa, ścieżka beamu) dostaje
+kopię prefiksu (`llama_memory_seq_cp`) i własne tokeny, a wszystkie ogony kroku idą jednym
+`llama_decode`. Importy `llama_cpp`/`numpy` są w metodach, żeby sam import modułu działał bez
+backendu.
+
+Pasek podpowiedzi to beam na `BAR_TOKENS` tokenów do przodu, liczony od tokenów kontekstu (na
+granicy tokenu), wariant w5_k5_p1 z evalu `beam_tokens` (2026-11-20): istotnie lepszy od greedy.
 """
 
 from __future__ import annotations
 
 import logging
-import re
+import math
 from typing import Callable, NamedTuple, Sequence
 
-import word_backoff
 from token_tree import (
-    DEFAULT_WIDTHS,
+    DEFAULT_LIMITS,
     EMPTY_ROOT,
     MAX_DEPTH,
     TreeNode,
-    ends_with_punct,
+    clean_token,
     grow_tree,
     pick_children,
-    pick_nodes,
 )
 
 logger = logging.getLogger(__name__)
-
-# Granica słowa: białe znaki oraz typowa interpunkcja polska.
-_BOUNDARY_RE = re.compile(r"[\s.,!?;:„”«»()\[\]\"'\-]")
-
-LEVEL_MID_WORD = "mid_word"
-LEVEL_WORD_BOUNDARY = "word_boundary"
 
 N_GPU_LAYERS = -1  # wszystkie warstwy na GPU
 N_BATCH = 512      # limit tokenów na jedno llama_decode
@@ -38,45 +33,93 @@ N_CTX = 2048
 # Limit równoległych sekwencji w batchu; kontekst musi mieć n_seq_max >= liczba ogonów.
 _MAX_PARALLEL_SEQS = 64
 
-# Pasek słów: liczba sugestii, beamów i rozwinięć na beam; tokenów dokończenia na beam.
+# Pasek podpowiedzi: liczba podpowiedzi, długość ścieżki w tokenach, ścieżek przeżywających krok
+# i rozwinięć na ścieżkę (top_k = szerokość: większe top_k i nucleus nic nie dawały w evalu).
 N_SUGGESTIONS = 5
-BEAM_WIDTH = 5
-TOP_K = 16
-_MAX_NEW_TOKENS = 6
-# Ile najlepszych dokończeń z cofnięcia startuje beam search paska słów.
-_BACKOFF_SEEDS = 24
+BAR_TOKENS = 3
+BAR_WIDTH = 5
+BAR_TOP_K = 5
+# Tokeny pobierane na ścieżkę przed filtrem `clean_token` (nowe linie, markdown, obce pisma).
+_BAR_FETCH = 32
 
 # Tokeny pobierane na węzeł drzewa przed filtrem (część top-k to nowe linie i interpunkcja).
 _TREE_FETCH = 16
 
 
-def text_level(text: str) -> str:
-    """Poziom predykcji: po spacji i interpunkcji następne słowo, inaczej dokończenie bieżącego."""
-    if not text or text[-1].isspace() or ends_with_punct(text):
-        return LEVEL_WORD_BOUNDARY
-    return LEVEL_MID_WORD
-
-
 class Suggestion(NamedTuple):
-    """Pojedyncza podpowiedź: dokończenie (bez prefixu), wynik i poziom."""
+    """Podpowiedź paska: dalszy ciąg tekstu (z wiodącą spacją, gdy zaczyna nowe słowo) i log P
+    modelu, zsumowane po ścieżkach tokenów dających ten sam tekst."""
 
     text: str
-    score: float
-    level: str
-    complete: bool  # czy dokończenie dobiło do granicy słowa / EOS (pełne słowo)
+    logprob: float
 
 
-class _Beam(NamedTuple):
-    tokens: tuple[int, ...]  # tokeny po prefiksie
-    logprob: float           # skumulowany log-prob
-    text: str                # wyekstrahowane dokończenie
-    complete: bool           # czy beam dobił do granicy słowa / EOS
-    # Ile pierwszych tokenów to wpisana część słowa (cofnięcie G&V): nie wchodzą do normalizacji.
-    skip: int = 0
+# (tokeny po prefiksie, suma log-probów)
+PathLP = tuple[tuple[int, ...], float]
+# step(ścieżki, krok) -> dla każdej ścieżki dozwolone (token, log P) malejąco, najwyżej BAR_TOP_K.
+StepFn = Callable[[list[tuple[int, ...]], int], list[list[tuple[int, float]]]]
+
+
+def beam_paths(
+    step: StepFn,
+    depth: int = BAR_TOKENS,
+    width: int = BAR_WIDTH,
+    should_abort: Callable[[], bool] | None = None,
+) -> list[PathLP]:
+    """Beam po całej ścieżce: wynik = SUMA log-probów (pełne P sekwencji, bez normalizacji
+    długością). Co krok każda ścieżka rozwija tokeny ze `step`, zostaje `width` najlepszych.
+    Ścieżka greedy (najlepszy token na każdym kroku) idzie osobnym torem i zawsze trafia do
+    kandydatów, więc najlepszy kandydat ma P ≥ P(greedy). Ścieżka bez dozwolonego rozwinięcia
+    odpada (greedy zostaje wtedy krótsza). Przerwane: [].
+    """
+    beams: list[PathLP] = [((), 0.0)]
+    greedy: PathLP = ((), 0.0)
+    greedy_alive = True
+    for d in range(depth):
+        if should_abort is not None and should_abort():
+            return []
+        lanes = [toks for toks, _lp in beams]
+        if greedy_alive and greedy[0] not in lanes:
+            lanes.append(greedy[0])
+        tops = dict(zip(lanes, step(lanes, d)))
+        if greedy_alive:
+            top = tops[greedy[0]]
+            if top:
+                tok, lp = top[0]
+                greedy = (greedy[0] + (tok,), greedy[1] + lp)
+            else:
+                greedy_alive = False
+        cands = [(toks + (tok,), lp + tok_lp) for toks, lp in beams for tok, tok_lp in tops[toks]]
+        beams = sorted(cands, key=lambda p: (-p[1], p[0]))[:width]
+        if not beams:
+            break
+    if greedy[0] and greedy[0] not in {toks for toks, _lp in beams}:
+        beams.append(greedy)
+    return beams
+
+
+def rank_by_text(
+    paths: Sequence[PathLP], text_of: Callable[[tuple[int, ...]], str], n: int = N_SUGGESTIONS
+) -> list[Suggestion]:
+    """Ścieżki o identycznym tekście łączone w jedną podpowiedź (P = suma P ścieżek), bez pustych;
+    ranking po P tekstu, najwyżej `n`."""
+    groups: dict[str, float] = {}
+    for toks, lp in paths:
+        text = text_of(toks)
+        if not text:
+            continue
+        prev = groups.get(text)
+        if prev is None:
+            groups[text] = lp
+        else:
+            m = max(prev, lp)
+            groups[text] = m + math.log(math.exp(prev - m) + math.exp(lp - m))
+    ranked = sorted(groups.items(), key=lambda kv: -kv[1])
+    return [Suggestion(text, lp) for text, lp in ranked[:n]]
 
 
 class BeamSearch:
-    """Model + KV-cache prefiksu: drzewo tokenów, cofnięcie do początku słowa, sugestie słów."""
+    """Model + KV-cache prefiksu: drzewo tokenów pasma i podpowiedzi paska."""
 
     def __init__(self, gguf_path: str) -> None:
         """Załaduj model z kontekstem na wiele równoległych sekwencji i wspólnym buforem KV."""
@@ -116,7 +159,6 @@ class BeamSearch:
             C.llama_context_default_params = _orig_params
 
         self._C = C
-        self._eos = self._llama.token_eos()
         self._n_vocab = self._llama.n_vocab()
         self._ctx = self._llama.ctx
         self._mem = C.llama_get_memory(self._ctx)
@@ -124,36 +166,29 @@ class BeamSearch:
         # Tokeny siedzące w seq 0 i logity ich ostatniego tokenu.
         self._seq0_tokens: tuple[int, ...] = ()
         self._seq0_logits = None
-        self._vocab_index: word_backoff.VocabIndex | None = None
-        self._backoff_cache = None
         logger.info("Model załadowany (n_vocab=%d, n_seq_max=%d).", self._n_vocab, self._ctx_seq_max)
 
     def warmup(self) -> None:
-        """Pierwsze wywołania kompilują shadery Vulkan; tu powstaje też indeks słownika."""
-        ids, level = self.prefix_ids("Test warmup ")
-        self.extend_tree(ids, EMPTY_ROOT, DEFAULT_WIDTHS, len(DEFAULT_WIDTHS), True)
-        self.suggest_tokens(ids, level)
-        self.vocab_index()
-        base_ids, typed = self.backoff_ids("Test warmup cof")
-        self.extend_tree(base_ids, EMPTY_ROOT, DEFAULT_WIDTHS, len(DEFAULT_WIDTHS), typed=typed)
-        self.suggest_backoff(base_ids, typed)
+        """Pierwsze wywołania kompilują shadery Vulkan."""
+        ids = self.prefix_ids("Test warmup ")
+        self.extend_tree(ids, EMPTY_ROOT, DEFAULT_LIMITS, MAX_DEPTH, True)
+        self.suggest(ids, after_space=True)
 
     # -- tokenizacja ----------------------------------------------------------
 
-    def prefix_ids(self, text: str) -> tuple[list[int], str]:
-        """Tokeny prefiksu (z BOS) i poziom predykcji.
-
-        Na granicy słowa końcowe białe znaki są ucinane: Gemma koduje słowo razem z wiodącą
-        spacją („▁słowo”), a samodzielny token spacji wytrąca model w środek słowa.
-        """
-        level = text_level(text)
-        tok_text = text.rstrip() if level == LEVEL_WORD_BOUNDARY else text
-        ids = self._llama.tokenize(tok_text.encode("utf-8"), add_bos=True, special=False)
-        return list(ids), level
+    def prefix_ids(self, text: str) -> list[int]:
+        """Tokeny prefiksu (z BOS). Końcowe białe znaki są ucinane: Gemma koduje słowo razem
+        z wiodącą spacją („▁słowo”), a samodzielny token spacji wytrąca model w środek słowa.
+        Spację niesie wtedy pierwszy token boksu albo podpowiedzi (`first_after_space`)."""
+        return list(self._llama.tokenize(text.rstrip().encode("utf-8"), add_bos=True, special=False))
 
     def _detokenize(self, tokens: list[int]) -> str:
         """Tekst sekwencji tokenów (niepełne UTF-8 pominięte)."""
         return self._llama.detokenize(tokens).decode("utf-8", errors="ignore")
+
+    def _token_bytes(self, token_id: int) -> bytes:
+        """Bajty tekstu jednego tokenu (do filtra `clean_token`; kontrolne dają b"")."""
+        return self._llama.detokenize([token_id], special=False)
 
     # -- dekodowanie z KV-cache -----------------------------------------------
 
@@ -261,210 +296,73 @@ class BeamSearch:
         idx = idx[np.argsort(-logprobs[idx])]
         return [(int(i), float(logprobs[i])) for i in idx]
 
-    # -- cofnięcie do początku słowa (G&V, `word_backoff`) ------------------------
-
-    def vocab_index(self) -> word_backoff.VocabIndex:
-        """Indeks słownika (Algorithm 1), budowany raz z ~262k detokenizacji."""
-        if self._vocab_index is None:
-            texts: list[str | None] = []
-            for i in range(self._n_vocab):
-                try:
-                    texts.append(self._llama.detokenize([i], special=False).decode("utf-8"))
-                except UnicodeDecodeError:
-                    texts.append(None)  # token bajtowy: sam nie jest poprawnym UTF-8
-            self._vocab_index = word_backoff.build_index(texts)
-        return self._vocab_index
-
-    def backoff_ids(self, text: str) -> tuple[list[int], str] | None:
-        """(tokeny kontekstu sprzed bieżącego słowa, wpisana część) albo None poza środkiem słowa."""
-        split = word_backoff.split_word(text)
-        if split is None:
-            return None
-        base, typed = split
-        if base:
-            ids = list(self._llama.tokenize(base.encode("utf-8"), add_bos=True, special=False))
-        else:
-            ids = [self._llama.token_bos()]
-        return ids, typed
-
-    def backoff(
-        self, ids: Sequence[int], typed: str, should_abort=None
-    ) -> word_backoff.BackoffResult | None:
-        """Dokończenia wpisanej części słowa po kontekście `ids` (ostatni wynik w pamięci:
-        drzewo i pasek słów pytają o ten sam tekst jeden po drugim)."""
-        key = (tuple(ids), typed)
-        if self._backoff_cache is not None and self._backoff_cache[0] == key:
-            return self._backoff_cache[1]
-        ids = list(ids)
-        res = word_backoff.search(
-            lambda tails: self._path_logits(ids, tails), self.vocab_index(), typed,
-            should_abort=should_abort,
-        )
-        if res is not None:
-            self._backoff_cache = (key, res)
-        return res
-
     # -- drzewo tokenów ---------------------------------------------------------
 
     def extend_tree(
         self,
         ids: Sequence[int],
         root: TreeNode,
-        widths: Sequence[int] = DEFAULT_WIDTHS,
+        limits: Sequence[int] = DEFAULT_LIMITS,
         upto_depth: int = MAX_DEPTH,
         after_whitespace: bool = False,
         top_p: float = 1.0,
-        max_leaves: int | None = None,
-        typed: str = "",
-        should_abort=None,
     ) -> TreeNode:
-        """Dolicz brakujące poziomy `root` do `upto_depth`; kontekstem są tokeny węzłów, nie
-        ponownie stokenizowany tekst. Przy `typed` `ids` to kontekst sprzed bieżącego słowa,
-        a dzieci korzenia to dokończenia wpisanej części (`word_backoff`)."""
+        """Dolicz brakujące kolumny `root` do `upto_depth` beamem z limitem boksów na kolumnę
+        (`token_tree.grow_tree`); kontekstem są tokeny węzłów, nie ponownie stokenizowany tekst."""
         ids = list(ids)
 
-        def decode(token_id: int) -> bytes:
-            """Bajty tekstu tokenu (do filtra `clean_token`)."""
-            return self._llama.detokenize([token_id], special=False)
-
         def expand(paths: list[tuple[int, ...]], width: int) -> list[tuple[TreeNode, ...]]:
-            """Dzieci każdego ogona jednym batchem (dzieci korzenia przy `typed` z cofnięcia)."""
-            if typed and paths == [()]:
-                res = self.backoff(ids, typed, should_abort)
-                if res is None:
-                    return [()]
-                return [pick_nodes(word_backoff.tree_candidates(res), width, top_p=top_p, min_keep=2)]
+            """Kandydaci na dzieci każdego ogona jednym batchem."""
             fetch = max(_TREE_FETCH, 2 * width)
             return [
                 pick_children(
-                    self._topk_logprobs(logits, fetch), decode, width,
+                    self._topk_logprobs(logits, fetch), self._token_bytes, width,
                     first_after_space=after_whitespace and not path, top_p=top_p,
-                    # Pierwsza kolumna zawsze z wyborem: jeden boks na całe pasmo wybrałby się sam.
+                    # Pierwsza kolumna zawsze z wyborem: co najmniej 2 boksy.
                     min_keep=2 if not path else 1,
                 )
                 for path, logits in zip(paths, self._path_logits(ids, paths))
             ]
 
-        return grow_tree(root, widths, upto_depth, expand, max_leaves)
+        return grow_tree(root, limits, upto_depth, expand)
 
-    # -- pasek słów -------------------------------------------------------------
+    # -- pasek podpowiedzi --------------------------------------------------------
 
-    def suggest_tokens(
-        self,
-        prefix_tokens: Sequence[int],
-        level: str,
-        should_abort: Callable[[], bool] | None = None,
-        seeds: Sequence[_Beam] | None = None,
-        typed: str = "",
-    ) -> list[Suggestion]:
-        """Do `N_SUGGESTIONS` dokończeń bieżącego słowa albo następnych słów, malejąco po
-        logprobie / liczbie tokenów.
-
-        `BEAM_WIDTH` beamów przeżywa krok (to też sufit liczby sugestii), każdy rozważa
-        `TOP_K` rozwinięć. Puste dokończenie w środku słowa nie zajmuje slotu. `seeds` + `typed`:
-        start z dokończeń cofnięcia (`suggest_backoff`), z tekstu beamów odcinana jest `typed`.
-        """
-        prefix_tokens = list(prefix_tokens)
-        if not prefix_tokens:
-            return []
-        n_prefix = len(prefix_tokens)
-        if n_prefix + _MAX_NEW_TOKENS >= N_CTX:
-            raise RuntimeError(f"Prefiks {n_prefix} tok + {_MAX_NEW_TOKENS} nie mieści się w n_ctx={N_CTX}.")
-        prefix_text = self._detokenize(prefix_tokens)
-
-        first_logits = self._ensure_prefill(prefix_tokens)
-        if seeds is None:
-            beams: list[_Beam] = [_Beam(tokens=(), logprob=0.0, text="", complete=False)]
-        else:
-            beams = self._prune_beams(list(seeds), BEAM_WIDTH)
-
-        for step in range(_MAX_NEW_TOKENS):
-            if should_abort is not None and should_abort():
-                return []
-            active = [b for b in beams if not b.complete]
-            if not active:
-                break
-            if step == 0 and seeds is None:
-                logits_list = [first_logits]  # jedyny beam jest pusty: logity samego prefiksu
-            else:
-                logits_list = self._decode_tails(n_prefix, [b.tokens for b in active])
-
-            candidates: list[tuple[float, _Beam, int]] = []
-            for beam, logits in zip(active, logits_list):
-                for tok, lp in self._topk_logprobs(logits, TOP_K):
-                    candidates.append((beam.logprob + lp, beam, tok))
-            candidates.sort(key=lambda c: c[0] / (len(c[1].tokens) + 1 - c[1].skip), reverse=True)
-
-            done_beams = [b for b in beams if b.complete]
-            new_beams: list[_Beam] = []
-            for cum_lp, beam, tok in candidates:
-                if len(new_beams) >= BEAM_WIDTH:
+    def _bar_tokens(self, logits, first_after_space: bool) -> list[tuple[int, float]]:
+        """Do `BAR_TOP_K` najlepszych tokenów po filtrze pasma (`clean_token`), malejąco.
+        Log P zostaje surowe (bez renormalizacji po filtrze)."""
+        out: list[tuple[int, float]] = []
+        for tok, lp in self._topk_logprobs(logits, _BAR_FETCH):
+            if clean_token(self._token_bytes(tok), first_after_space) is not None:
+                out.append((tok, lp))
+                if len(out) >= BAR_TOP_K:
                     break
-                tokens = beam.tokens + (tok,)
-                full_text = self._detokenize(prefix_tokens + list(tokens))
-                text, boundary = self._extract(level, full_text[len(prefix_text) + len(typed):])
-                complete = boundary or tok == self._eos
-                if complete and level == LEVEL_MID_WORD and not text:
-                    continue
-                new_beams.append(_Beam(tokens, cum_lp, text, complete, beam.skip))
+        return out
 
-            beams = self._prune_beams(done_beams + new_beams, BEAM_WIDTH)
-
-        return self._finalize(beams, level)
-
-    def suggest_backoff(
-        self, prefix_tokens: Sequence[int], typed: str, should_abort: Callable[[], bool] | None = None
+    def suggest(
+        self,
+        ids: Sequence[int],
+        after_space: bool = False,
+        should_abort: Callable[[], bool] | None = None,
     ) -> list[Suggestion]:
-        """Dokończenia bieżącego słowa z cofnięciem do jego początku: beamy startują z dokończeń
-        wpisanej części (`prefix_tokens` = kontekst sprzed słowa), dalej zwykły beam search."""
-        res = self.backoff(prefix_tokens, typed, should_abort)
-        if res is None:
+        """Do `N_SUGGESTIONS` dalszych ciągów tekstu na `BAR_TOKENS` tokenów po `ids`,
+        malejąco po P (`beam_paths` + `rank_by_text`). Tokeny przechodzą ten sam filtr co boksy
+        pasma; tuż po wpisanej spacji pierwszy token musi zaczynać nowe słowo."""
+        ids = list(ids)
+        if len(ids) + BAR_TOKENS >= N_CTX:
+            raise RuntimeError(f"Prefiks {len(ids)} tok + {BAR_TOKENS} nie mieści się w n_ctx={N_CTX}.")
+        prefix_text = self._detokenize(ids)
+
+        def step(lanes: list[tuple[int, ...]], depth: int) -> list[list[tuple[int, float]]]:
+            """Dozwolone rozwinięcia każdej ścieżki, jednym batchem."""
+            first = after_space and depth == 0
+            return [self._bar_tokens(lg, first) for lg in self._path_logits(ids, lanes)]
+
+        def text_of(toks: tuple[int, ...]) -> str:
+            """Tekst ścieżki: detokenizacja razem z prefiksem (wiodąca spacja pierwszego tokenu)."""
+            return self._detokenize(ids + list(toks))[len(prefix_text):]
+
+        paths = beam_paths(step, should_abort=should_abort)
+        if not paths:
             return []
-        seeds: list[_Beam] = []
-        for c in res.completions[:_BACKOFF_SEEDS]:
-            text, boundary = self._extract(LEVEL_MID_WORD, c.suffix)
-            if boundary and not text:
-                continue  # słowo już się skończyło: to następne słowo, nie dokończenie
-            seeds.append(_Beam(c.tokens, c.logprob, text, boundary, skip=len(c.tokens) - 1))
-        if not seeds:
-            return []
-        return self.suggest_tokens(prefix_tokens, LEVEL_MID_WORD, should_abort, seeds=seeds, typed=typed)
-
-    @staticmethod
-    def _extract(level: str, cont: str) -> tuple[str, bool]:
-        """Z surowego dokończenia `cont` wyciągnij tekst słowa i flagę „słowo skończone”."""
-        if level == LEVEL_MID_WORD:
-            if cont and cont[0].isspace():
-                return "", True
-            m = _BOUNDARY_RE.search(cont)
-            return (cont[: m.start()], True) if m else (cont, False)
-        stripped = cont.lstrip()
-        if not stripped:
-            return "", False
-        m = _BOUNDARY_RE.search(stripped)
-        return (stripped[: m.start()], True) if m else (stripped, False)
-
-    @staticmethod
-    def _norm_score(beam: _Beam) -> float:
-        """Logprob beamu / liczba tokenów — ta sama miara przy przycinaniu i rankingu końcowym."""
-        n = len(beam.tokens) - beam.skip
-        return beam.logprob / n if n > 0 else float("-inf")
-
-    def _prune_beams(self, beams: list[_Beam], beam_width: int) -> list[_Beam]:
-        """`beam_width` najlepszych beamów według `_norm_score`."""
-        return sorted(beams, key=self._norm_score, reverse=True)[:beam_width]
-
-    def _finalize(self, beams: list[_Beam], level: str) -> list[Suggestion]:
-        """Sugestie z beamów: ranking po `_norm_score`, bez pustych i duplikatów, najwyżej
-        `N_SUGGESTIONS`."""
-        suggestions: list[Suggestion] = []
-        seen: set[str] = set()
-        for beam in sorted(beams, key=self._norm_score, reverse=True):
-            text = beam.text.strip()
-            if not text or text.lower() in seen:
-                continue
-            seen.add(text.lower())
-            suggestions.append(Suggestion(text, self._norm_score(beam), level, beam.complete))
-            if len(suggestions) >= N_SUGGESTIONS:
-                break
-        return suggestions
+        return rank_by_text(paths, text_of)
